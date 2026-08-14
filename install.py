@@ -19,6 +19,10 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 IGNORED_NAMES = {"__pycache__", ".DS_Store"}
 IGNORED_SUFFIXES = {".pyc", ".pyo"}
 RECEIPT_NAME = ".desktop-avatar-install.json"
+LEGACY_MANAGED_FILES: dict[str, tuple[str, ...]] = {
+    "channel": (),
+    "emotion": ("desktop_avatar_runtime.py",),
+}
 
 
 @dataclass(frozen=True)
@@ -153,6 +157,10 @@ def install_component(
         return destination_root
     for item in files:
         atomic_copy(item.source, item.destination)
+    for relative in LEGACY_MANAGED_FILES.get(name, ()):
+        legacy_path = destination_root / relative
+        if legacy_path.is_file() or legacy_path.is_symlink():
+            legacy_path.unlink()
     receipt = {
         "component": name,
         "package": "pal-desktop-avatar",

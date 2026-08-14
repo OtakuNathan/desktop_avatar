@@ -69,6 +69,7 @@ python install.py --runtime-root /path/to/runtime --component emotion
 `channel_provider_rescan` / endpoint attach 与 `plugin_rescan` / `plugin_attach` 生命周期能力热加载。
 安装采用逐文件原子替换，保留安装目录中不属于发布包的文件；成功后会生成
 `.desktop-avatar-install.json`，记录版本、安装文件和 SHA-256，并立即核验安装结果。
+已知由旧版本安装、但已经退役的入口文件会在 `--force` 更新时一并清理。
 
 ## 构建发布包
 
