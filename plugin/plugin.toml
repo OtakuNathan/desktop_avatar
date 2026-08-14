@@ -1,0 +1,4 @@
+plugin_id = "desktop_avatar_emotion"
+entrypoint = "runtime"
+version = "0.1.11"
+enabled_by_default = true

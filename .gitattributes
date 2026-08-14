@@ -1,0 +1,5 @@
+*.moc binary
+*.png binary
+*.wav binary
+client/assets/model/umaru/** -text
+client/vendor/** -text

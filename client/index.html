@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Desktop Companion</title>
+<script src="js/config.js?v=6"></script>
+<link rel="stylesheet" href="css/style.css?v=6">
+</head>
+<body>
+  <!-- 聊天面板（双击小埋弹出） -->
+  <div id="chat-panel" class="chat-panel hidden" role="dialog" aria-label="和妹妹聊天">
+    <div class="chat-header">
+      <span class="chat-title">Desktop Companion 💬</span>
+      <div class="chat-header-actions">
+        <button id="chat-clear-screen" class="chat-header-button" type="button" title="只清空当前画面，不删除记录">清屏</button>
+        <button id="chat-clear-history" class="chat-header-button danger" type="button" title="永久删除全部桌宠聊天记录">清空记录</button>
+        <button id="chat-close" class="chat-close" type="button" aria-label="关闭聊天框">✕</button>
+      </div>
+    </div>
+    <div id="chat-messages" class="chat-messages"></div>
+    <div class="chat-input-row">
+      <textarea id="chat-input" class="chat-input" placeholder="和妹妹说点什么…（Shift+Enter 换行）" autocomplete="off" rows="1"></textarea>
+      <button id="chat-send" class="chat-send" type="button" disabled>发送</button>
+    </div>
+  </div>
+
+  <!-- 角色拥有独立舞台，不与聊天区叠放。选中的渲染器会把角色移入这里。 -->
+  <aside id="avatar-stage" aria-label="妹妹的桌面形象">
+    <div id="state-badge" class="state-badge">standby</div>
+    <section id="checklist-panel" class="checklist-panel hidden" aria-live="polite">
+      <div class="checklist-header">
+        <span>正在做</span>
+        <span id="checklist-progress" class="checklist-progress"></span>
+      </div>
+      <ol id="checklist-items" class="checklist-items"></ol>
+    </section>
+  </aside>
+
+  <script src="vendor/L2Dwidget.min.js"></script>
+  <script src="js/live2d-motion-control.js"></script>
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/purify.min.js"></script>
+  <script src="js/main.js?v=6"></script>
+</body>
+</html>
