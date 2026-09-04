@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import mimetypes
 import os
@@ -35,10 +36,12 @@ import sqlite3
 import sys
 import time
 from collections import deque
+from contextlib import contextmanager
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from threading import Lock
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import unquote, urlsplit
 
 import websockets
@@ -49,11 +52,13 @@ from pal.foundation.sidecar import pack_sidecar_message, read_sidecar_message
 
 SOCKET_PROTOCOL_TYPE: str = "user_message"
 MAX_FRAME_BYTES: int = 16 * 1024 * 1024
+PAL_DELIVERY_RECEIPT_MAX_ITEMS: int = 8192
 
 IDLE_TO_SLEEPING_SECONDS: float = 3600.0  # 1h without any traffic -> sleeping
 SLEEPING_WAKE_TIMEOUT: float = 3600.0
 THINKING_PROBE_SECONDS: float = 0.1
 EXPRESSIVE_STATE_SECONDS: float = 1.1
+EXPRESSIVE_STATE_FAILSAFE_SECONDS: float = 30.0
 HISTORY_PAGE_ROUNDS: int = 10
 INGRESS_DELIVERY_ATTEMPTS: int = 3
 INGRESS_RETRY_DELAYS: tuple[float, ...] = (0.25, 0.5)
@@ -64,6 +69,7 @@ VALID_STATES = [
     "awkward", "smirk", "cheeky",
     "excited", "shy", "proud", "confused", "love", "panic", "bored",
     "greeting", "celebrate",
+    "laugh", "clap", "agree", "complain", "dance",
     "snacking", "drinking", "stretching",
 ]
 
@@ -75,6 +81,7 @@ EXPRESSIVE_STATES = frozenset({
     "awkward", "smirk", "cheeky",
     "excited", "shy", "proud", "confused", "love", "panic", "bored",
     "greeting", "celebrate",
+    "laugh", "clap", "agree", "complain", "dance",
     "snacking", "drinking", "stretching",
 })
 STATE_ALIASES = {
@@ -96,27 +103,143 @@ def _default_client_root() -> Path:
 
 
 CLIENT_ROOT = _default_client_root()
+SKIN_MANIFEST_ROUTE = "desktop-avatar-skin-manifest.json"
+SKIN_ASSET_ROUTE_PREFIX = "desktop-avatar-skins/pal/"
 
 
-def _http_response(status: int, reason: str, body: bytes, content_type: str) -> Response:
-    import hashlib
-
+def _http_response(
+    status: int,
+    reason: str,
+    body: bytes,
+    content_type: str,
+    *,
+    cache_control: str = "no-cache",
+    etag: str = "",
+) -> Response:
     headers = {
         "Content-Type": content_type,
         "Content-Length": str(len(body)),
-        "Cache-Control": "no-cache",
-        "ETag": '"' + hashlib.sha1(body).hexdigest() + '"',
+        "Cache-Control": cache_control,
+        "ETag": etag or ('"' + hashlib.sha1(body).hexdigest() + '"'),
         "X-Content-Type-Options": "nosniff",
     }
     return Response(status, reason, Headers(headers), body)
 
 
-def serve_client_asset(_connection: object, request: Request) -> Response | None:
+def _pal_skin_manifest(skin_cache_root: Path) -> tuple[dict[str, Any], Path]:
+    manifest_path = skin_cache_root / "pal" / "manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("invalid Pal skin manifest")
+    digest = str(payload.get("sha256") or "").lower()
+    filename = str(payload.get("filename") or "")
+    clips = payload.get("clips")
+    if (
+        payload.get("schema_version") != 1
+        or payload.get("skin") != "pal"
+        or len(digest) != 64
+        or any(character not in "0123456789abcdef" for character in digest)
+        or filename != f"{digest}.glb"
+        or not isinstance(clips, dict)
+        or not clips
+        or any(
+            not isinstance(state, str)
+            or not state
+            or not isinstance(clip, str)
+            or not clip
+            for state, clip in clips.items()
+        )
+    ):
+        raise ValueError("invalid Pal skin manifest")
+    model_path = (manifest_path.parent / filename).resolve()
+    model_path.relative_to(manifest_path.parent.resolve())
+    if not model_path.is_file():
+        raise FileNotFoundError(f"Pal skin model is missing: {model_path}")
+    return payload, model_path
+
+
+def _verified_pal_skin_body(payload: dict[str, Any], model_path: Path) -> bytes:
+    body = model_path.read_bytes()
+    if hashlib.sha256(body).hexdigest() != payload["sha256"]:
+        raise ValueError("Pal skin model digest mismatch")
+    return body
+
+
+def _serve_pal_skin_manifest(skin_cache_root: Path) -> Response:
+    try:
+        payload, _model_path = _pal_skin_manifest(skin_cache_root)
+    except (FileNotFoundError, OSError, TypeError, ValueError, json.JSONDecodeError):
+        body = json.dumps(
+            {
+                "error": "pal_skin_not_installed",
+                "detail": "Pal skin cache is missing or invalid.",
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        return _http_response(
+            404,
+            "Not Found",
+            body,
+            "application/json; charset=utf-8",
+            cache_control="no-store",
+        )
+    browser_manifest = {
+        "skin": "pal",
+        "sha256": payload["sha256"],
+        "model_url": f"/{SKIN_ASSET_ROUTE_PREFIX}{payload['filename']}",
+        "clips": dict(payload.get("clips") or {}),
+    }
+    body = json.dumps(browser_manifest, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return _http_response(
+        200,
+        "OK",
+        body,
+        "application/json; charset=utf-8",
+        cache_control="no-store",
+    )
+
+
+def _serve_pal_skin_asset(skin_cache_root: Path, relative: str) -> Response:
+    requested_filename = relative.removeprefix(SKIN_ASSET_ROUTE_PREFIX)
+    try:
+        payload, model_path = _pal_skin_manifest(skin_cache_root)
+    except (FileNotFoundError, OSError, TypeError, ValueError, json.JSONDecodeError):
+        return _http_response(404, "Not Found", b"Not Found\n", "text/plain; charset=utf-8")
+    if requested_filename != payload["filename"]:
+        return _http_response(404, "Not Found", b"Not Found\n", "text/plain; charset=utf-8")
+    try:
+        body = _verified_pal_skin_body(payload, model_path)
+    except (OSError, TypeError, ValueError):
+        return _http_response(404, "Not Found", b"Not Found\n", "text/plain; charset=utf-8")
+    return _http_response(
+        200,
+        "OK",
+        body,
+        "model/gltf-binary",
+        cache_control="public, max-age=31536000, immutable",
+        etag=f'"sha256-{payload["sha256"]}"',
+    )
+
+
+def serve_client_asset(
+    _connection: object,
+    request: Request,
+    *,
+    skin_cache_root: Path | None = None,
+) -> Response | None:
     """Serve the self-contained client; WebSocket upgrades continue normally."""
     if request.headers.get("Upgrade", "").lower() == "websocket":
         return None
 
     relative = unquote(urlsplit(request.path).path).lstrip("/") or "index.html"
+    if relative == SKIN_MANIFEST_ROUTE:
+        if skin_cache_root is None:
+            return _http_response(404, "Not Found", b"Not Found\n", "text/plain; charset=utf-8")
+        return _serve_pal_skin_manifest(Path(skin_cache_root))
+    if relative.startswith(SKIN_ASSET_ROUTE_PREFIX):
+        if skin_cache_root is None:
+            return _http_response(404, "Not Found", b"Not Found\n", "text/plain; charset=utf-8")
+        return _serve_pal_skin_asset(Path(skin_cache_root), relative)
     candidate = (CLIENT_ROOT / relative).resolve()
     try:
         candidate.relative_to(CLIENT_ROOT.resolve())
@@ -239,19 +362,39 @@ class StateMachine:
         self._set_base_state("standby")
 
     def on_external_state(self, state: str, *, duration: float = EXPRESSIVE_STATE_SECONDS) -> bool:
-        """Apply a Pal/user state signal; expressive states preempt then resume."""
+        """Queue an expressive state until the browser reports clip completion."""
         normalized = normalize_state(state)
         if normalized not in VALID_STATES:
             return False
         if normalized in EXPRESSIVE_STATES:
-            bounded_duration = min(5.0, max(0.4, float(duration or EXPRESSIVE_STATE_SECONDS)))
+            try:
+                requested_duration = max(0.0, float(duration))
+            except (TypeError, ValueError):
+                requested_duration = EXPRESSIVE_STATE_SECONDS
             self._override_state = normalized
-            self._override_until = time.monotonic() + bounded_duration
+            # Browser mixer completion is authoritative. This deadline only
+            # prevents a disconnected or broken client from pinning the
+            # sidecar in an expressive state forever.
+            self._override_until = time.monotonic() + max(
+                EXPRESSIVE_STATE_FAILSAFE_SECONDS,
+                requested_duration + 2.0,
+            )
             self._display_state = normalized
             self._last_activity = time.monotonic()
             self._queue.push(normalized, preempt=True)
             return True
         self._set_base_state(normalized)
+        return True
+
+    def on_external_action_finished(self, state: str) -> bool:
+        """Resume the latest base state after the matching native clip ends."""
+        normalized = normalize_state(state)
+        if normalized != self._override_state:
+            return False
+        self._override_state = None
+        self._override_until = 0.0
+        self._display_state = self._base_state
+        self._queue.push(self._base_state, preempt=True)
         return True
 
     def tick(self) -> str | None:
@@ -328,9 +471,9 @@ class ManagerRpcServer:
                         writer.write(response({}))
                         await writer.drain()
                         self._ready.clear()
-                        for task in asyncio.all_tasks():
-                            if task is not asyncio.current_task():
-                                task.cancel()
+                        shutdown = self._shutdown()
+                        if asyncio.iscoroutine(shutdown):
+                            await shutdown
                         break
                     elif method == "push_state":
                         state = str(params.get("state") or payload.get("state") or "")
@@ -378,6 +521,11 @@ class PalChannelClient:
         for attempt in range(20):
             try:
                 self._reader, self._writer = await asyncio.open_unix_connection(str(self._path))
+                self._writer.write(pack_sidecar_message({
+                    "type": "session_ready",
+                    "delivery_ack_v1": True,
+                }))
+                await self._writer.drain()
                 return
             except (ConnectionRefusedError, FileNotFoundError, OSError):
                 await asyncio.sleep(0.5)
@@ -420,6 +568,22 @@ class PalChannelClient:
             raise ConnectionError("Pal channel socket not connected")
         return await read_sidecar_message(self._reader)
 
+    async def acknowledge_reply(self, reply: dict[str, Any]) -> None:
+        """Confirm that the sidecar accepted one Pal delivery frame."""
+
+        delivery_id = str(reply.get("_pal_delivery_id") or "")
+        if not delivery_id:
+            return
+        data = pack_sidecar_message({
+            "type": "delivery_ack",
+            "delivery_id": delivery_id,
+        })
+        async with self._write_lock:
+            if self._writer is None:
+                raise ConnectionError("Pal channel socket not connected")
+            self._writer.write(data)
+            await self._writer.drain()
+
     async def close(self) -> None:
         if self._writer is not None:
             with contextlib.suppress(Exception):
@@ -438,6 +602,7 @@ class ChatHistoryStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(path)
         self._connection.row_factory = sqlite3.Row
+        self._transaction_depth = 0
         self._connection.execute("PRAGMA journal_mode=WAL")
         self._connection.execute("PRAGMA busy_timeout=3000")
         self._connection.execute(
@@ -465,6 +630,19 @@ class ChatHistoryStore:
             "projection_key TEXT PRIMARY KEY, payload_json TEXT NOT NULL"
             ")"
         )
+        self._connection.execute(
+            "CREATE TABLE IF NOT EXISTS pal_delivery_receipts ("
+            "delivery_id TEXT PRIMARY KEY, received_at_us INTEGER NOT NULL"
+            ")"
+        )
+        self._connection.execute(
+            "CREATE TABLE IF NOT EXISTS control_replies ("
+            "request_id TEXT PRIMARY KEY, content TEXT NOT NULL, "
+            "complete INTEGER NOT NULL DEFAULT 0, "
+            "browser_delivery_id TEXT NOT NULL DEFAULT '', "
+            "updated_at_us INTEGER NOT NULL"
+            ")"
+        )
         columns = {
             str(row["name"])
             for row in self._connection.execute("PRAGMA table_info(chat_messages)").fetchall()
@@ -479,6 +657,10 @@ class ChatHistoryStore:
         self._last_timestamp_us = int(row["latest"] if row else 0)
         self._connection.commit()
 
+    def _commit(self) -> None:
+        if self._transaction_depth == 0:
+            self._connection.commit()
+
     def append(self, turn_id: str, sender: str, content: str) -> None:
         text = str(content or "").strip()
         if not text:
@@ -490,7 +672,7 @@ class ChatHistoryStore:
             "VALUES (?, ?, ?, ?)",
             (str(turn_id), str(sender), text, timestamp_us),
         )
-        self._connection.commit()
+        self._commit()
 
     def page(
         self,
@@ -592,7 +774,7 @@ class ChatHistoryStore:
                 "UPDATE chat_messages SET content = content || ?, complete = 0 WHERE id = ?",
                 (text, int(avatar["id"])),
             )
-        self._connection.commit()
+        self._commit()
         return True
 
     def complete_avatar(self, turn_id: str) -> None:
@@ -604,7 +786,7 @@ class ChatHistoryStore:
             ")",
             (str(turn_id or ""),),
         )
-        self._connection.commit()
+        self._commit()
 
     def active_replies(self) -> dict[str, str]:
         rows = self._connection.execute(
@@ -645,7 +827,7 @@ class ChatHistoryStore:
                 "ON CONFLICT(projection_key) DO UPDATE SET payload_json = excluded.payload_json",
                 (key, json.dumps(frame, ensure_ascii=False, separators=(",", ":"))),
             )
-        self._connection.commit()
+        self._commit()
 
     def load_interactions(self) -> dict[str, dict[str, Any]]:
         rows = self._connection.execute(
@@ -679,11 +861,134 @@ class ChatHistoryStore:
                 "ON CONFLICT(projection_key) DO UPDATE SET payload_json = excluded.payload_json",
                 (key, json.dumps(frame, ensure_ascii=False, separators=(",", ":"))),
             )
-        self._connection.commit()
+        self._commit()
+
+    def has_pal_delivery(self, delivery_id: str) -> bool:
+        if not str(delivery_id or ""):
+            return False
+        row = self._connection.execute(
+            "SELECT 1 FROM pal_delivery_receipts WHERE delivery_id = ?",
+            (str(delivery_id),),
+        ).fetchone()
+        return row is not None
+
+    def remember_pal_delivery(self, delivery_id: str) -> None:
+        if not str(delivery_id or ""):
+            return
+        self._remember_pal_delivery(str(delivery_id))
+        self._commit()
+
+    def _remember_pal_delivery(self, delivery_id: str) -> None:
+        self._connection.execute(
+            "INSERT OR IGNORE INTO pal_delivery_receipts(delivery_id, received_at_us) "
+            "VALUES (?, ?)",
+            (delivery_id, time.time_ns() // 1_000),
+        )
+        self._connection.execute(
+            "DELETE FROM pal_delivery_receipts WHERE delivery_id NOT IN ("
+            "SELECT delivery_id FROM pal_delivery_receipts "
+            "ORDER BY received_at_us DESC, delivery_id DESC LIMIT ?)",
+            (PAL_DELIVERY_RECEIPT_MAX_ITEMS,),
+        )
+
+    @contextmanager
+    def pal_delivery_transaction(self, delivery_id: str):
+        """Atomically own one Pal frame together with its durable projection."""
+
+        normalized = str(delivery_id or "")
+        if not normalized:
+            yield True
+            return
+        if self.has_pal_delivery(normalized):
+            yield False
+            return
+        self._connection.execute("BEGIN IMMEDIATE")
+        self._transaction_depth += 1
+        try:
+            yield True
+            self._remember_pal_delivery(normalized)
+            self._connection.commit()
+        except BaseException:
+            self._connection.rollback()
+            raise
+        finally:
+            self._transaction_depth = max(0, self._transaction_depth - 1)
+
+    @property
+    def in_pal_delivery_transaction(self) -> bool:
+        return self._transaction_depth > 0
+
+    def append_control_delta(self, request_id: str, delta: str) -> None:
+        normalized = str(request_id or "")
+        text = str(delta or "")
+        if not normalized or not text:
+            return
+        self._connection.execute(
+            "INSERT INTO control_replies("
+            "request_id, content, complete, browser_delivery_id, updated_at_us"
+            ") VALUES (?, ?, 0, '', ?) "
+            "ON CONFLICT(request_id) DO UPDATE SET "
+            "content = control_replies.content || excluded.content, "
+            "complete = 0, browser_delivery_id = '', "
+            "updated_at_us = excluded.updated_at_us",
+            (normalized, text, time.time_ns() // 1_000),
+        )
+        self._commit()
+
+    def complete_control(self, request_id: str) -> str:
+        normalized = str(request_id or "")
+        if not normalized:
+            return ""
+        browser_delivery_id = f"control:{normalized}"
+        self._connection.execute(
+            "UPDATE control_replies SET complete = 1, browser_delivery_id = ?, "
+            "updated_at_us = ? WHERE request_id = ? AND content != ''",
+            (browser_delivery_id, time.time_ns() // 1_000, normalized),
+        )
+        row = self._connection.execute(
+            "SELECT browser_delivery_id FROM control_replies "
+            "WHERE request_id = ? AND complete = 1",
+            (normalized,),
+        ).fetchone()
+        self._commit()
+        return str(row["browser_delivery_id"]) if row is not None else ""
+
+    def active_control_replies(self) -> dict[str, str]:
+        rows = self._connection.execute(
+            "SELECT request_id, content FROM control_replies "
+            "WHERE complete = 0 ORDER BY updated_at_us, request_id"
+        ).fetchall()
+        return {str(row["request_id"]): str(row["content"]) for row in rows}
+
+    def pending_control_deliveries(self) -> list[dict[str, str]]:
+        rows = self._connection.execute(
+            "SELECT request_id, content, browser_delivery_id "
+            "FROM control_replies WHERE complete = 1 "
+            "ORDER BY updated_at_us, request_id"
+        ).fetchall()
+        return [
+            {
+                "request_id": str(row["request_id"]),
+                "text": str(row["content"]),
+                "delivery_id": str(row["browser_delivery_id"]),
+            }
+            for row in rows
+        ]
+
+    def acknowledge_control_delivery(self, delivery_id: str) -> None:
+        normalized = str(delivery_id or "")
+        if not normalized:
+            return
+        self._connection.execute(
+            "DELETE FROM control_replies WHERE complete = 1 "
+            "AND browser_delivery_id = ?",
+            (normalized,),
+        )
+        self._commit()
 
     def clear(self) -> None:
         self._connection.execute("DELETE FROM chat_messages")
-        self._connection.commit()
+        self._commit()
         self._connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
     def delete_turn(self, turn_id: str) -> None:
@@ -691,7 +996,7 @@ class ChatHistoryStore:
             "DELETE FROM chat_messages WHERE turn_id = ?",
             (str(turn_id or ""),),
         )
-        self._connection.commit()
+        self._commit()
 
     def close(self) -> None:
         self._connection.close()
@@ -719,23 +1024,26 @@ class AvatarWebSocketServer:
             request_id: [text]
             for request_id, text in history.active_replies().items()
         }
+        self._reply_parts.update(
+            {
+                request_id: [text]
+                for request_id, text in history.active_control_replies().items()
+            }
+        )
         self._started_replies: set[str] = set()
         self._segment_break_pending: set[str] = set()
         self._ingress_queue: asyncio.Queue[PendingIngress] = asyncio.Queue()
         self._ingress_retry_delays = tuple(ingress_retry_delays)
+        self._captured_frames: list[dict[str, Any]] | None = None
 
     async def broadcast_state(self, state: str) -> None:
-        frame = json.dumps({"type": "avatar_state", "state": state}, ensure_ascii=False)
-        dead = []
-        for ws in list(self._clients):
-            try:
-                await ws.send(frame)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self._clients.discard(ws)
+        await self.broadcast_frame({"type": "avatar_state", "state": state})
 
     async def broadcast_frame(self, payload: dict[str, Any]) -> None:
+        captured = getattr(self, "_captured_frames", None)
+        if captured is not None:
+            captured.append(dict(payload))
+            return
         frame = json.dumps(payload, ensure_ascii=False)
         dead = []
         for ws in list(self._clients):
@@ -745,6 +1053,33 @@ class AvatarWebSocketServer:
                 dead.append(ws)
         for ws in dead:
             self._clients.discard(ws)
+
+    def _persist_projection(self, operation: Callable[[], Any]) -> None:
+        try:
+            operation()
+        except sqlite3.Error:
+            if self._history.in_pal_delivery_transaction:
+                raise
+
+    def _persist_reply_delta(self, request_id: str, text: str) -> None:
+        if request_id and not request_id.startswith("chat_"):
+            self._persist_projection(
+                lambda: self._history.append_control_delta(request_id, text)
+            )
+            return
+        self._persist_projection(
+            lambda: self._history.append_avatar_delta(request_id, text)
+        )
+
+    def _complete_control_projection(self, request_id: str) -> str:
+        if not request_id or request_id.startswith("chat_"):
+            return ""
+        try:
+            return self._history.complete_control(request_id)
+        except sqlite3.Error:
+            if self._history.in_pal_delivery_transaction:
+                raise
+            return ""
 
     async def broadcast_tagged_message(
         self,
@@ -764,12 +1099,14 @@ class AvatarWebSocketServer:
         }
         if str(frame["payload"].get("action") or "").lower() == "clear":
             self._tagged_messages.pop(normalized_tag, None)
-            with contextlib.suppress(sqlite3.Error):
-                self._history.store_tagged_message(normalized_tag, None)
+            self._persist_projection(
+                lambda: self._history.store_tagged_message(normalized_tag, None)
+            )
         else:
             self._tagged_messages[normalized_tag] = frame
-            with contextlib.suppress(sqlite3.Error):
-                self._history.store_tagged_message(normalized_tag, frame)
+            self._persist_projection(
+                lambda: self._history.store_tagged_message(normalized_tag, frame)
+            )
         await self.broadcast_frame(frame)
 
     async def send_history_page(
@@ -803,25 +1140,18 @@ class AvatarWebSocketServer:
         *,
         event: str = "delta",
         message_id: str = "",
+        delivery_id: str = "",
     ) -> None:
-        frame = json.dumps(
-            {
+        payload = {
                 "type": "chat_message",
                 "sender": "avatar",
                 "event": event,
                 "message_id": message_id,
                 "text": text,
-            },
-            ensure_ascii=False,
-        )
-        dead = []
-        for ws in list(self._clients):
-            try:
-                await ws.send(frame)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self._clients.discard(ws)
+            }
+        if delivery_id:
+            payload["_avatar_delivery_id"] = delivery_id
+        await self.broadcast_frame(payload)
 
     async def broadcast_user_message(self, text: str, *, message_id: str) -> None:
         await self.broadcast_frame({
@@ -849,12 +1179,14 @@ class AvatarWebSocketServer:
         if interaction_id:
             if frame["event"] in {"resolve", "expire"}:
                 self._interactions.pop(interaction_id, None)
-                with contextlib.suppress(sqlite3.Error):
-                    self._history.store_interaction(interaction_id, None)
+                self._persist_projection(
+                    lambda: self._history.store_interaction(interaction_id, None)
+                )
             else:
                 self._interactions[interaction_id] = frame
-                with contextlib.suppress(sqlite3.Error):
-                    self._history.store_interaction(interaction_id, frame)
+                self._persist_projection(
+                    lambda: self._history.store_interaction(interaction_id, frame)
+                )
         await self.broadcast_frame(frame)
 
     async def handle(self, ws: websockets.WebSocketServerProtocol) -> None:
@@ -867,6 +1199,31 @@ class AvatarWebSocketServer:
                 await ws.send(json.dumps(tagged, ensure_ascii=False))
             for interaction in self._interactions.values():
                 await ws.send(json.dumps(interaction, ensure_ascii=False))
+            for request_id, text in self._history.active_control_replies().items():
+                await ws.send(json.dumps({
+                    "type": "chat_message",
+                    "sender": "avatar",
+                    "event": "start",
+                    "message_id": request_id,
+                    "text": "",
+                }, ensure_ascii=False))
+                await ws.send(json.dumps({
+                    "type": "chat_message",
+                    "sender": "avatar",
+                    "event": "delta",
+                    "message_id": request_id,
+                    "text": text,
+                }, ensure_ascii=False))
+                self._started_replies.add(request_id)
+            for pending in self._history.pending_control_deliveries():
+                await ws.send(json.dumps({
+                    "type": "chat_message",
+                    "sender": "avatar",
+                    "event": "notification",
+                    "message_id": pending["request_id"],
+                    "text": pending["text"],
+                    "_avatar_delivery_id": pending["delivery_id"],
+                }, ensure_ascii=False))
             async for raw in ws:
                 if not raw:
                     continue
@@ -921,6 +1278,12 @@ class AvatarWebSocketServer:
                     await self.broadcast_frame({"type": "chat_history_cleared"})
                 elif kind == "ping":
                     await ws.send(json.dumps({"type": "pong"}))
+                elif kind == "avatar_action_finished":
+                    state = normalize_state(frame.get("state"))
+                    if state in EXPRESSIVE_STATES:
+                        # Stale completions are expected after preemption and
+                        # intentionally remain silent.
+                        self._sm.on_external_action_finished(state)
                 elif kind == "avatar_action":
                     state = str(frame.get("state") or "")
                     duration = frame.get("duration", EXPRESSIVE_STATE_SECONDS)
@@ -928,6 +1291,10 @@ class AvatarWebSocketServer:
                         await ws.send(json.dumps({"type": "error", "error": "invalid_avatar_action"}))
                         continue
                     self._sm.on_external_state(state, duration=duration)
+                elif kind == "browser_delivery_ack":
+                    self._history.acknowledge_control_delivery(
+                        str(frame.get("delivery_id") or "")
+                    )
                 elif kind == "interaction_result":
                     interaction_id = str(frame.get("interaction_id") or "").strip()
                     button_token = str(frame.get("button_token") or "").strip()
@@ -1008,7 +1375,6 @@ class AvatarWebSocketServer:
             with contextlib.suppress(sqlite3.Error):
                 self._history.append(request_id, "user", text)
             self._sm.on_client_message()
-            await self.broadcast_state("thinking")
         await self.broadcast_user_message(text, message_id=request_id)
         return request_id
 
@@ -1060,7 +1426,18 @@ class AvatarWebSocketServer:
         """Continuously project the full-duplex Pal socket onto browser peers."""
         while True:
             reply = await self._channel.read_reply()
-            await self._project_pal_reply(reply)
+            delivery_id = str(reply.get("_pal_delivery_id") or "")
+            captured: list[dict[str, Any]] = []
+            with self._history.pal_delivery_transaction(delivery_id) as fresh:
+                if fresh:
+                    self._captured_frames = captured
+                    try:
+                        await self._project_pal_reply(reply)
+                    finally:
+                        self._captured_frames = None
+            for payload in captured:
+                await self.broadcast_frame(payload)
+            await self._channel.acknowledge_reply(reply)
 
     async def _start_reply(self, request_id: str) -> None:
         if not request_id or request_id in self._started_replies:
@@ -1096,10 +1473,7 @@ class AvatarWebSocketServer:
                 self._sm.on_reply_delta()
             await self._start_reply(request_id)
             self._reply_parts.setdefault(request_id, []).append(delta)
-            try:
-                self._history.append_avatar_delta(request_id, delta)
-            except sqlite3.Error:
-                pass
+            self._persist_reply_delta(request_id, delta)
             await self.broadcast_chat(delta, event="delta", message_id=request_id)
             return
         if rtype in {
@@ -1130,8 +1504,7 @@ class AvatarWebSocketServer:
             if fallback:
                 await self._start_reply(request_id)
                 self._reply_parts.setdefault(request_id, []).append(fallback)
-                with contextlib.suppress(sqlite3.Error):
-                    self._history.append_avatar_delta(request_id, fallback)
+                self._persist_reply_delta(request_id, fallback)
                 await self.broadcast_chat(fallback, event="delta", message_id=request_id)
             return
         if rtype in {"tool_call", "op_tool_call"}:
@@ -1156,10 +1529,7 @@ class AvatarWebSocketServer:
                 if missing_text:
                     await self._start_reply(request_id)
                     self._reply_parts.setdefault(request_id, []).append(missing_text)
-                    try:
-                        self._history.append_avatar_delta(request_id, missing_text)
-                    except sqlite3.Error:
-                        pass
+                    self._persist_reply_delta(request_id, missing_text)
                     await self.broadcast_chat(
                         missing_text,
                         event="delta",
@@ -1170,28 +1540,29 @@ class AvatarWebSocketServer:
                 error_text = self._apply_segment_break(request_id, error_text)
                 await self._start_reply(request_id)
                 self._reply_parts.setdefault(request_id, []).append(error_text)
-                try:
-                    self._history.append_avatar_delta(request_id, error_text)
-                except sqlite3.Error:
-                    pass
+                self._persist_reply_delta(request_id, error_text)
                 await self.broadcast_chat(error_text, event="delta", message_id=request_id)
+            browser_delivery_id = self._complete_control_projection(request_id)
             self._reply_parts.pop(request_id, None)
             self._segment_break_pending.discard(request_id)
-            try:
-                self._history.complete_avatar(request_id)
-            except sqlite3.Error:
-                pass
+            self._persist_projection(
+                lambda: self._history.complete_avatar(request_id)
+            )
             chat_reply = request_id.startswith("chat_")
             self._started_replies.discard(request_id)
             if request_id:
-                await self.broadcast_chat("", event="done", message_id=request_id)
+                await self.broadcast_chat(
+                    "",
+                    event="done",
+                    message_id=request_id,
+                    delivery_id=browser_delivery_id,
+                )
             other_chat_replies = any(
                 active_request_id.startswith("chat_")
                 for active_request_id in self._started_replies
             )
             if chat_reply and not other_chat_replies:
                 self._sm.on_reply_done()
-                await self.broadcast_state("standby")
 
     async def state_pump(self) -> None:
         """Periodically evaluate the state machine and broadcast changes."""
@@ -1207,14 +1578,7 @@ class AvatarWebSocketServer:
 # Main entrypoint                                                              #
 # --------------------------------------------------------------------------- #
 
-def _force_exit(signum, frame):
-    raise SystemExit(0)
-
-
 async def serve(config: SidecarConfig) -> None:
-    signal.signal(signal.SIGTERM, _force_exit)
-    signal.signal(signal.SIGINT, _force_exit)
-
     queue = AvatarStateQueue()
     state_machine = StateMachine(queue, config.idle_to_sleeping_seconds)
     channel = PalChannelClient(config.bridge_socket_path)
@@ -1222,6 +1586,14 @@ async def serve(config: SidecarConfig) -> None:
     history = ChatHistoryStore(config.data_root / "chat_history.sqlite3")
 
     loop = asyncio.get_running_loop()
+    shutdown_event = asyncio.Event()
+    installed_signal_handlers: list[signal.Signals] = []
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(signum, shutdown_event.set)
+        except (NotImplementedError, RuntimeError):
+            continue
+        installed_signal_handlers.append(signum)
 
     async def push_external_state(state: str, duration: object = EXPRESSIVE_STATE_SECONDS) -> bool:
         try:
@@ -1229,14 +1601,6 @@ async def serve(config: SidecarConfig) -> None:
         except (TypeError, ValueError):
             parsed_duration = EXPRESSIVE_STATE_SECONDS
         return state_machine.on_external_state(state, duration=parsed_duration)
-
-    manager = ManagerRpcServer(
-        manager_socket_path=config.manager_socket_path,
-        health_fn=lambda: {"listener_bound": ws_server._connected >= 0, "connected_peers": ws_server._connected, "last_error": ""},
-        shutdown_fn=lambda: None,
-        state_callback=push_external_state,
-        ready_event=asyncio.Event(),
-    )
 
     ws_server = AvatarWebSocketServer(
         state_machine=state_machine,
@@ -1246,35 +1610,62 @@ async def serve(config: SidecarConfig) -> None:
         loop=loop,
     )
 
-    async with websockets.serve(
-        ws_server.handle,
-        config.bind_host,
-        config.bind_port,
-        process_request=serve_client_asset,
-    ):
-        print(
-            f"[desktop_avatar] client + WS listening on {config.bind_host}:{config.bind_port}",
-            flush=True,
-        )
-        tasks = (
-            asyncio.create_task(ws_server.state_pump()),
-            asyncio.create_task(ws_server.ingress_pump()),
-            asyncio.create_task(ws_server.reply_pump()),
-            asyncio.create_task(manager.serve()),
-        )
-        try:
-            # A dead reply pump must terminate the sidecar rather than leave a
-            # healthy-looking WebSocket listener that can no longer talk to
-            # Pal. Provider supervision can then report/recover the failure.
-            await asyncio.gather(*tasks)
-        except (asyncio.CancelledError, SystemExit):
-            pass
-        finally:
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            await channel.close()
-            history.close()
+    try:
+        async with websockets.serve(
+            ws_server.handle,
+            config.bind_host,
+            config.bind_port,
+            close_timeout=1.0,
+            process_request=partial(
+                serve_client_asset,
+                skin_cache_root=config.runtime_root / "data" / "desktop_avatar" / "skins",
+            ),
+        ) as websocket_listener:
+            manager = ManagerRpcServer(
+                manager_socket_path=config.manager_socket_path,
+                health_fn=lambda: {
+                    "listener_bound": websocket_listener.is_serving(),
+                    "connected_peers": ws_server._connected,
+                    "last_error": "",
+                },
+                shutdown_fn=shutdown_event.set,
+                state_callback=push_external_state,
+                ready_event=asyncio.Event(),
+            )
+            print(
+                f"[desktop_avatar] client + WS listening on {config.bind_host}:{config.bind_port}",
+                flush=True,
+            )
+            tasks = (
+                asyncio.create_task(ws_server.state_pump()),
+                asyncio.create_task(ws_server.ingress_pump()),
+                asyncio.create_task(ws_server.reply_pump()),
+                asyncio.create_task(manager.serve()),
+            )
+            shutdown_waiter = asyncio.create_task(shutdown_event.wait())
+            try:
+                # A dead reply pump must terminate the sidecar rather than leave a
+                # healthy-looking WebSocket listener that can no longer talk to
+                # Pal. Provider supervision can then report/recover the failure.
+                done, _pending = await asyncio.wait(
+                    (*tasks, shutdown_waiter),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if shutdown_waiter not in done:
+                    for task in done:
+                        task.result()
+            except asyncio.CancelledError:
+                pass
+            finally:
+                shutdown_waiter.cancel()
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(shutdown_waiter, *tasks, return_exceptions=True)
+    finally:
+        for signum in installed_signal_handlers:
+            loop.remove_signal_handler(signum)
+        await channel.close()
+        history.close()
 
 
 if __name__ == "__main__":

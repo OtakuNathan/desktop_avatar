@@ -17,3 +17,7 @@ redistribution, replace that directory with a model you are authorized to distri
 `client/js/config.js`, and comply with the applicable Live2D SDK/model terms.
 
 The generated `client/assets/background/cozy-room.png` is project-local artwork created for this client.
+
+The optional Pal GLB character model is a project-local asset supplied separately by the project
+owner. It isn't included in this source tree or package; the installer places it in the local runtime
+skin cache. Confirm the applicable generation-service and redistribution terms before publishing it.

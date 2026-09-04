@@ -19,6 +19,9 @@ class _Outbound:
     def put_nowait(self, item: dict) -> None:
         self.items.append(item)
 
+    def empty(self) -> bool:
+        return not self.items
+
 
 class _WebSocket:
     def __init__(self) -> None:
@@ -75,6 +78,52 @@ def test_endpoint_projects_checklist_stream_message_to_a_dedicated_frame() -> No
             "payload": dict(_message().payload),
         }
     ]
+
+
+def test_endpoint_routes_active_delivery_through_the_newest_open_sidecar_session() -> None:
+    endpoint = DesktopAvatarEndpoint(
+        endpoint=EndpointConfig("desktop", "desktop_avatar", "desktop.sock"),
+        socket_path=Path("desktop.sock"),
+    )
+    endpoint.sessions["old"] = SimpleNamespace(session_id="old", closed=False)
+    endpoint.sessions["closed"] = SimpleNamespace(session_id="closed", closed=True)
+    endpoint.sessions["replacement"] = SimpleNamespace(session_id="replacement", closed=False)
+
+    assert endpoint.derive_default_reply_target() == {
+        "session_id": "replacement",
+        "request_id": "",
+        "control_scope_key": "socket:desktop:replacement",
+    }
+
+
+def test_endpoint_rejects_active_delivery_without_an_open_sidecar_session() -> None:
+    endpoint = DesktopAvatarEndpoint(
+        endpoint=EndpointConfig("desktop", "desktop_avatar", "desktop.sock"),
+        socket_path=Path("desktop.sock"),
+    )
+    endpoint.sessions["closed"] = SimpleNamespace(session_id="closed", closed=True)
+
+    assert endpoint.derive_default_reply_target() == {}
+
+
+def test_endpoint_replacement_is_not_ready_before_sidecar_handshake() -> None:
+    endpoint = DesktopAvatarEndpoint(
+        endpoint=EndpointConfig("desktop", "desktop_avatar", "desktop.sock"),
+        socket_path=Path("desktop.sock"),
+    )
+    endpoint.sessions["starting"] = SimpleNamespace(
+        session_id="starting",
+        closed=False,
+        ready_notified=False,
+        inflight_payload=None,
+        outbound=_Outbound(),
+        delivery_ack_waiters={},
+    )
+
+    assert not endpoint.replacement_delivery_ready()
+
+    endpoint.sessions["starting"].ready_notified = True
+    assert endpoint.replacement_delivery_ready()
 
 
 def test_sidecar_retains_active_checklist_and_broadcasts_clear() -> None:

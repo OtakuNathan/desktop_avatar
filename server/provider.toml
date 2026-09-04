@@ -3,7 +3,7 @@
 # <runtime_root>/channel/providers/desktop_avatar/ .
 provider_id = "desktop_avatar"
 entrypoint = "runtime.py"
-version = "0.1.11"
+version = "0.1.13"
 enabled = true
 
 reload_modules = ["runtime", "sidecar"]

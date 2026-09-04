@@ -519,6 +519,43 @@ html[data-avatar-skin="pal"] #avatar-stage.has-checklist #pal-webgl-widget {
   transition: filter 220ms ease, opacity 300ms ease;
 }
 
+.pal-webgl-loading {
+  position: absolute;
+  left: 50%;
+  bottom: 43%;
+  translate: -50% 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border: 1px solid rgba(70, 199, 244, 0.24);
+  border-radius: 999px;
+  background: rgba(3, 12, 22, 0.82);
+  color: rgba(194, 238, 255, 0.9);
+  font: 600 11px/1.2 system-ui, sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 21;
+}
+
+.pal-webgl-bootstrap-loading {
+  bottom: 48%;
+}
+
+.pal-webgl-loading::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border: 2px solid rgba(92, 211, 251, 0.25);
+  border-top-color: #5cd3fb;
+  border-radius: 50%;
+  animation: pal-loading-spin 0.8s linear infinite;
+}
+
+@keyframes pal-loading-spin {
+  to { rotate: 1turn; }
+}
+
 /* State-driven wrapper motion complements both the Live2D and WebGL models. */
 :is(#live2d-widget, #pal-webgl-widget).avatar-state-standby { animation: avatar-breathe 4.2s ease-in-out infinite; }
 :is(#live2d-widget, #pal-webgl-widget).avatar-state-sleeping {

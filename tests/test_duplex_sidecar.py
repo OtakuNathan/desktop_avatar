@@ -2,10 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
+from collections import deque
 from pathlib import Path
 from types import SimpleNamespace
 
-from server.sidecar import AvatarWebSocketServer, ChatHistoryStore
+import server.sidecar as sidecar_module
+from server.sidecar import (
+    AvatarStateQueue,
+    AvatarWebSocketServer,
+    ChatHistoryStore,
+    SidecarConfig,
+    StateMachine,
+    serve,
+)
 
 
 class _Channel:
@@ -36,6 +46,23 @@ class _FlakyChannel(_Channel):
         self.sent.append((text, request_id))
 
 
+class _ReplyChannel(_Channel):
+    def __init__(self, replies: list[dict[str, object]]) -> None:
+        super().__init__()
+        self.replies = deque(replies)
+        self.acknowledged: list[str] = []
+        self._empty = asyncio.Event()
+
+    async def read_reply(self) -> dict[str, object]:
+        if self.replies:
+            return self.replies.popleft()
+        await self._empty.wait()
+        raise AssertionError("unreachable")
+
+    async def acknowledge_reply(self, reply: dict[str, object]) -> None:
+        self.acknowledged.append(str(reply.get("_pal_delivery_id") or ""))
+
+
 class _StateMachine:
     current_state = "standby"
 
@@ -63,6 +90,17 @@ class _WebSocket:
         raise StopAsyncIteration
 
 
+class _IncomingWebSocket(_WebSocket):
+    def __init__(self, incoming: list[dict[str, object]]) -> None:
+        super().__init__()
+        self.incoming = deque(incoming)
+
+    async def __anext__(self):
+        if not self.incoming:
+            raise StopAsyncIteration
+        return json.dumps(self.incoming.popleft())
+
+
 def _server(history: ChatHistoryStore, channel: _Channel | None = None) -> AvatarWebSocketServer:
     return AvatarWebSocketServer(
         state_machine=_StateMachine(),
@@ -72,6 +110,120 @@ def _server(history: ChatHistoryStore, channel: _Channel | None = None) -> Avata
         loop=asyncio.get_running_loop(),
         ingress_retry_delays=(0.0, 0.0),
     )
+
+
+def test_native_action_completion_resumes_the_latest_base_state() -> None:
+    queue = AvatarStateQueue()
+    state_machine = StateMachine(queue, idle_timeout=3600.0)
+
+    assert state_machine.on_external_state("happy", duration=1.1)
+    assert queue.pop()["state"] == "happy"
+    state_machine.on_reply_delta()
+
+    assert state_machine.current_state == "happy"
+    assert not state_machine.on_external_action_finished("sad")
+    assert state_machine.current_state == "happy"
+    assert state_machine.on_external_action_finished("happy")
+    assert state_machine.current_state == "working"
+    assert queue.pop()["state"] == "working"
+
+
+def test_native_action_has_a_disconnect_failsafe(monkeypatch) -> None:
+    now = [100.0]
+    monkeypatch.setattr(sidecar_module.time, "monotonic", lambda: now[0])
+    queue = AvatarStateQueue()
+    state_machine = StateMachine(queue, idle_timeout=3600.0)
+
+    assert state_machine.on_external_state("happy", duration=1.1)
+    queue.pop()
+    now[0] += 31.0
+
+    assert state_machine.tick() == "standby"
+    assert state_machine.current_state == "standby"
+    assert queue.pop()["state"] == "standby"
+
+
+def test_sidecar_shutdown_is_event_driven_and_listener_health_is_real(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    events: list[str] = []
+    health_samples: list[bool] = []
+    listeners = []
+
+    class FakeChannel:
+        def __init__(self, _socket_path: Path) -> None:
+            self.blocked = asyncio.Event()
+
+        async def connect(self) -> None:
+            events.append("channel_connected")
+
+        async def close(self) -> None:
+            events.append("channel_closed")
+
+        async def read_reply(self):
+            await self.blocked.wait()
+            raise AssertionError("unreachable")
+
+    class FakeListener:
+        def __init__(self) -> None:
+            self.serving = False
+
+        async def __aenter__(self):
+            self.serving = True
+            events.append("listener_entered")
+            return self
+
+        async def __aexit__(self, *_exc_info) -> None:
+            self.serving = False
+            events.append("listener_closed")
+
+        def is_serving(self) -> bool:
+            return self.serving
+
+    def fake_websocket_serve(*_args, **kwargs):
+        assert kwargs["close_timeout"] == 1.0
+        listener = FakeListener()
+        listeners.append(listener)
+        return listener
+
+    class FakeManager:
+        def __init__(self, *, health_fn, shutdown_fn, **_kwargs) -> None:
+            self.health_fn = health_fn
+            self.shutdown_fn = shutdown_fn
+
+        async def serve(self) -> None:
+            listener = listeners[0]
+            health_samples.append(bool(self.health_fn()["listener_bound"]))
+            listener.serving = False
+            health_samples.append(bool(self.health_fn()["listener_bound"]))
+            listener.serving = True
+            self.shutdown_fn()
+
+    monkeypatch.setattr(sidecar_module, "PalChannelClient", FakeChannel)
+    monkeypatch.setattr(sidecar_module, "ManagerRpcServer", FakeManager)
+    monkeypatch.setattr(sidecar_module.websockets, "serve", fake_websocket_serve)
+
+    asyncio.run(
+        serve(
+            SidecarConfig(
+                runtime_root=tmp_path,
+                data_root=tmp_path,
+                bridge_socket_path=tmp_path / "bridge.sock",
+                manager_socket_path=tmp_path / "manager.sock",
+                bind_host="127.0.0.1",
+                bind_port=0,
+            )
+        )
+    )
+
+    assert health_samples == [True, False]
+    assert events == [
+        "channel_connected",
+        "listener_entered",
+        "listener_closed",
+        "channel_closed",
+    ]
 
 
 def test_ingress_does_not_wait_for_a_reply_before_sending_the_next_message(tmp_path: Path) -> None:
@@ -174,6 +326,170 @@ def test_tagged_display_projection_survives_sidecar_restart(tmp_path: Path) -> N
         restored_history = ChatHistoryStore(path)
         restored = _server(restored_history)
         assert restored._tagged_messages["checklist"]["payload"]["action"] == "upsert"
+        restored_history.close()
+
+    asyncio.run(scenario())
+
+
+def test_completed_chat_reconstructs_without_stale_boundary_replay(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        path = tmp_path / "history.sqlite3"
+        history = ChatHistoryStore(path)
+        history.append("chat_pending", "user", "finish this")
+        server = _server(history)
+        await server._project_pal_reply({
+            "type": "text_delta",
+            "request_id": "chat_pending",
+            "text": "finished while absent",
+        })
+        await server._project_pal_reply({
+            "type": "done",
+            "request_id": "chat_pending",
+            "finish_reason": "stop",
+        })
+        history.close()
+
+        restored_history = ChatHistoryStore(path)
+        restored = _server(restored_history)
+        reconnect = _WebSocket()
+        await restored.handle(reconnect)
+        replayed = [json.loads(frame) for frame in reconnect.sent]
+        history_frames = [frame for frame in replayed if frame.get("type") == "chat_history"]
+        assert len(history_frames) == 1
+        messages = history_frames[0]["messages"]
+        avatar_messages = [message for message in messages if message["sender"] == "avatar"]
+        assert [message["text"] for message in avatar_messages] == [
+            "finished while absent"
+        ]
+        assert avatar_messages[0]["complete"] is True
+        assert not any(
+            frame.get("type") == "chat_message"
+            and frame.get("event") in {"start", "done"}
+            for frame in replayed
+        )
+        restored_history.close()
+
+    asyncio.run(scenario())
+
+
+def test_pal_delivery_receipts_survive_sidecar_restart(tmp_path: Path) -> None:
+    path = tmp_path / "history.sqlite3"
+    history = ChatHistoryStore(path)
+    assert not history.has_pal_delivery("delivery-1")
+    history.remember_pal_delivery("delivery-1")
+    assert history.has_pal_delivery("delivery-1")
+    history.close()
+
+    restored = ChatHistoryStore(path)
+    assert restored.has_pal_delivery("delivery-1")
+    restored.close()
+
+
+def test_pal_projection_rolls_back_when_receipt_cannot_commit(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        history = ChatHistoryStore(tmp_path / "history.sqlite3")
+        channel = _ReplyChannel([{
+            "type": "text_delta",
+            "request_id": "control_0_atomic",
+            "text": "must be atomic",
+            "_pal_delivery_id": "delivery-atomic",
+        }])
+        server = _server(history, channel)
+
+        def fail_receipt(_delivery_id: str) -> None:
+            raise sqlite3.OperationalError("receipt unavailable")
+
+        history._remember_pal_delivery = fail_receipt
+        worker = asyncio.create_task(server.reply_pump())
+        try:
+            try:
+                await asyncio.wait_for(worker, timeout=1.0)
+            except sqlite3.OperationalError as exc:
+                assert "receipt unavailable" in str(exc)
+            else:
+                raise AssertionError("expected receipt failure")
+            assert history.active_control_replies() == {}
+            assert not history.has_pal_delivery("delivery-atomic")
+            assert channel.acknowledged == []
+        finally:
+            if not worker.done():
+                worker.cancel()
+                await asyncio.gather(worker, return_exceptions=True)
+            history.close()
+
+    asyncio.run(scenario())
+
+
+def test_offline_control_reply_replays_as_one_acknowledged_notification(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        path = tmp_path / "history.sqlite3"
+        history = ChatHistoryStore(path)
+        channel = _ReplyChannel([
+            {
+                "type": "text_delta",
+                "request_id": "control_0_status",
+                "text": "status while absent",
+                "_pal_delivery_id": "delivery-control-text",
+            },
+            {
+                "type": "text_delta",
+                "request_id": "control_0_status",
+                "text": "status while absent",
+                "_pal_delivery_id": "delivery-control-text",
+            },
+            {
+                "type": "done",
+                "request_id": "control_0_status",
+                "finish_reason": "stop",
+                "_pal_delivery_id": "delivery-control-done",
+            },
+        ])
+        server = _server(history, channel)
+        worker = asyncio.create_task(server.reply_pump())
+        try:
+            deadline = asyncio.get_running_loop().time() + 1.0
+            while len(channel.acknowledged) < 3:
+                if asyncio.get_running_loop().time() >= deadline:
+                    raise AssertionError("Pal replies were not acknowledged")
+                await asyncio.sleep(0)
+        finally:
+            worker.cancel()
+            await asyncio.gather(worker, return_exceptions=True)
+
+        assert channel.acknowledged == [
+            "delivery-control-text",
+            "delivery-control-text",
+            "delivery-control-done",
+        ]
+        pending = history.pending_control_deliveries()
+        assert pending == [{
+            "request_id": "control_0_status",
+            "text": "status while absent",
+            "delivery_id": "control:control_0_status",
+        }]
+        history.close()
+
+        restored_history = ChatHistoryStore(path)
+        restored = _server(restored_history)
+        browser = _IncomingWebSocket([{
+            "type": "browser_delivery_ack",
+            "delivery_id": "control:control_0_status",
+        }])
+        await restored.handle(browser)
+        replayed = [json.loads(frame) for frame in browser.sent]
+        notifications = [
+            frame
+            for frame in replayed
+            if frame.get("_avatar_delivery_id") == "control:control_0_status"
+        ]
+        assert len(notifications) == 1
+        assert notifications[0]["event"] == "notification"
+        assert notifications[0]["text"] == "status while absent"
+        assert restored_history.pending_control_deliveries() == []
         restored_history.close()
 
     asyncio.run(scenario())
@@ -312,7 +628,7 @@ def test_terminal_full_text_repairs_a_delta_lost_during_reattach(tmp_path: Path)
             frame.get("event") == "delta" and frame.get("text") == " and recovered tail"
             for frame in frames
         )
-        assert frames[-2]["event"] == "done"
+        assert frames[-1]["event"] == "done"
         history.close()
 
     asyncio.run(scenario())

@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import shutil
+import struct
 import sys
 import tempfile
 import tomllib
@@ -19,9 +20,28 @@ PACKAGE_ROOT = Path(__file__).resolve().parent
 IGNORED_NAMES = {"__pycache__", ".DS_Store"}
 IGNORED_SUFFIXES = {".pyc", ".pyo"}
 RECEIPT_NAME = ".desktop-avatar-install.json"
+EXTERNAL_PAL_MODEL_PATH = "assets/model/pal/pal.glb"
+PAL_REFERENCE_PATH_PREFIX = "assets/model/pal/reference/"
 LEGACY_MANAGED_FILES: dict[str, tuple[str, ...]] = {
-    "channel": (),
+    "channel": (
+        "client/assets/model/pal/pal.glb",
+        "client/assets/model/pal/reference/pal-action-concept.png",
+        "client/assets/model/pal/reference/pal-expression-sheet.png",
+        "client/assets/model/pal/reference/pal-idle-action-sheet.png",
+        "client/assets/model/pal/reference/pal-neutral-front.png",
+    ),
     "emotion": ("desktop_avatar_runtime.py",),
+}
+PAL_CLIP_MAP: dict[str, str] = {
+    "happy": "NlaTrack",
+    "laugh": "NlaTrack.001",
+    "celebrate": "NlaTrack.002",
+    "panic": "NlaTrack.003",
+    "clap": "NlaTrack.004",
+    "agree": "NlaTrack.005",
+    "greeting": "NlaTrack.006",
+    "complain": "NlaTrack.007",
+    "dance": "NlaTrack.008",
 }
 
 
@@ -82,6 +102,11 @@ def channel_files(runtime_root: Path) -> tuple[Path, list[InstallFile]]:
     ]
     for source in included_files(PACKAGE_ROOT / "client"):
         relative = source.relative_to(PACKAGE_ROOT / "client")
+        if (
+            relative.as_posix() == EXTERNAL_PAL_MODEL_PATH
+            or relative.as_posix().startswith(PAL_REFERENCE_PATH_PREFIX)
+        ):
+            continue
         files.append(
             InstallFile(source, destination_root / "client" / relative, f"client/{relative.as_posix()}")
         )
@@ -107,6 +132,107 @@ def file_sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def validate_pal_glb(path: Path) -> tuple[str, ...]:
+    """Validate the external Pal skin before it enters the runtime cache."""
+    source = Path(path)
+    if not source.is_file():
+        raise FileNotFoundError(f"Pal GLB model not found: {source}")
+    with source.open("rb") as stream:
+        if stream.read(4) != b"glTF":
+            raise ValueError(f"Pal model is not a binary glTF file: {source}")
+        version_data = stream.read(4)
+        length_data = stream.read(4)
+        if len(version_data) != 4 or len(length_data) != 4:
+            raise ValueError(f"Pal GLB header is truncated: {source}")
+        version = struct.unpack("<I", version_data)[0]
+        total_length = struct.unpack("<I", length_data)[0]
+        if version != 2 or total_length != source.stat().st_size:
+            raise ValueError(
+                f"Pal GLB header is invalid: version={version}, "
+                f"declared_length={total_length}, actual_length={source.stat().st_size}"
+            )
+        document: dict[str, object] | None = None
+        while stream.tell() < total_length:
+            chunk_header = stream.read(8)
+            if len(chunk_header) != 8:
+                raise ValueError(f"Pal GLB chunk header is truncated: {source}")
+            chunk_length, chunk_kind = struct.unpack("<II", chunk_header)
+            chunk = stream.read(chunk_length)
+            if len(chunk) != chunk_length:
+                raise ValueError(f"Pal GLB chunk is truncated: {source}")
+            if chunk_kind == 0x4E4F534A and document is None:
+                parsed = json.loads(chunk.decode("utf-8").rstrip("\x00 \t\r\n"))
+                if not isinstance(parsed, dict):
+                    raise ValueError(f"Pal GLB JSON chunk is not an object: {source}")
+                document = parsed
+    if document is None:
+        raise ValueError(f"Pal GLB has no JSON chunk: {source}")
+
+    nodes = document.get("nodes")
+    meshes = document.get("meshes")
+    scenes = document.get("scenes")
+    if not isinstance(nodes, list) or not isinstance(meshes, list) or not isinstance(scenes, list):
+        raise ValueError(f"Pal GLB has no renderable scene: {source}")
+    selected_scene = document.get("scene", 0)
+    if not isinstance(selected_scene, int) or not 0 <= selected_scene < len(scenes):
+        raise ValueError(f"Pal GLB has an invalid default scene: {source}")
+    scene = scenes[selected_scene]
+    if not isinstance(scene, dict) or not isinstance(scene.get("nodes"), list):
+        raise ValueError(f"Pal GLB has no renderable scene: {source}")
+
+    pending = list(scene["nodes"])
+    visited: set[int] = set()
+    renderable_mesh_found = False
+    while pending:
+        node_index = pending.pop()
+        if not isinstance(node_index, int) or not 0 <= node_index < len(nodes):
+            raise ValueError(f"Pal GLB scene references an invalid node: {source}")
+        if node_index in visited:
+            continue
+        visited.add(node_index)
+        node = nodes[node_index]
+        if not isinstance(node, dict):
+            raise ValueError(f"Pal GLB contains an invalid node: {source}")
+        children = node.get("children", [])
+        if not isinstance(children, list):
+            raise ValueError(f"Pal GLB node has invalid children: {source}")
+        pending.extend(children)
+        mesh_index = node.get("mesh")
+        if mesh_index is None:
+            continue
+        if not isinstance(mesh_index, int) or not 0 <= mesh_index < len(meshes):
+            raise ValueError(f"Pal GLB node references an invalid mesh: {source}")
+        mesh = meshes[mesh_index]
+        if isinstance(mesh, dict) and isinstance(mesh.get("primitives"), list) and mesh["primitives"]:
+            renderable_mesh_found = True
+    if not renderable_mesh_found:
+        raise ValueError(f"Pal GLB default scene contains no renderable mesh: {source}")
+
+    animations = document.get("animations")
+    if not isinstance(animations, list):
+        raise ValueError(f"Pal GLB has no animations: {source}")
+    animations_by_name = {
+        str(animation.get("name") or ""): animation
+        for animation in animations
+        if isinstance(animation, dict)
+    }
+    clip_names = tuple(animations_by_name)
+    missing = [clip for clip in PAL_CLIP_MAP.values() if clip not in animations_by_name]
+    if missing:
+        raise ValueError("Pal GLB is missing required animation clips: " + ", ".join(missing))
+    empty = [
+        clip
+        for clip in PAL_CLIP_MAP.values()
+        if not isinstance(animations_by_name[clip].get("channels"), list)
+        or not animations_by_name[clip]["channels"]
+        or not isinstance(animations_by_name[clip].get("samplers"), list)
+        or not animations_by_name[clip]["samplers"]
+    ]
+    if empty:
+        raise ValueError("Pal GLB has empty required animation clips: " + ", ".join(empty))
+    return clip_names
 
 
 def atomic_copy(source: Path, destination: Path) -> None:
@@ -142,6 +268,39 @@ def atomic_write_json(destination: Path, payload: dict[str, object]) -> None:
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def pal_skin_cache_root(runtime_root: Path) -> Path:
+    return Path(runtime_root) / "data" / "desktop_avatar" / "skins" / "pal"
+
+
+def install_pal_model(runtime_root: Path, source: Path, *, dry_run: bool) -> Path:
+    """Install one validated GLB under a content-addressed runtime-local name."""
+    source = Path(source).expanduser().resolve()
+    validate_pal_glb(source)
+    digest = file_sha256(source)
+    cache_root = pal_skin_cache_root(runtime_root)
+    destination = cache_root / f"{digest}.glb"
+    if dry_run:
+        print(f"would install Pal skin cache: {destination}")
+        return destination
+
+    atomic_copy(source, destination)
+    if file_sha256(destination) != digest:
+        raise RuntimeError(f"Pal skin cache verification failed: {destination}")
+    manifest = {
+        "schema_version": 1,
+        "skin": "pal",
+        "sha256": digest,
+        "filename": destination.name,
+        "clips": dict(PAL_CLIP_MAP),
+    }
+    atomic_write_json(cache_root / "manifest.json", manifest)
+    for stale in cache_root.glob("*.glb"):
+        if stale != destination and stale.is_file():
+            stale.unlink()
+    print(f"installed and verified Pal skin cache: {destination}")
+    return destination
 
 
 def install_component(
@@ -214,9 +373,22 @@ def main() -> int:
         action="store_true",
         help="Validate and print destinations without writing files.",
     )
+    parser.add_argument(
+        "--pal-model",
+        type=Path,
+        default=None,
+        help=(
+            "Validate and install a local Pal GLB into the runtime skin cache. "
+            "The model remains outside the provider package."
+        ),
+    )
     args = parser.parse_args()
     version = validate_package()
     runtime_root = args.runtime_root.expanduser().resolve()
+    if args.pal_model is not None and args.component == "emotion":
+        raise ValueError("--pal-model requires --component channel or all")
+    if args.pal_model is not None:
+        validate_pal_glb(args.pal_model.expanduser().resolve())
     selections: list[tuple[str, Path, list[InstallFile]]] = []
     if args.component in {"all", "channel"}:
         destination, files = channel_files(runtime_root)
@@ -241,6 +413,15 @@ def main() -> int:
         )
         for name, destination, files in selections
     ]
+    if args.component in {"all", "channel"}:
+        if args.pal_model is not None:
+            install_pal_model(runtime_root, args.pal_model, dry_run=args.dry_run)
+        elif not (pal_skin_cache_root(runtime_root) / "manifest.json").is_file():
+            print(
+                "warning: Pal skin has no local model cache; rerun with "
+                "--pal-model /path/to/pal.glb",
+                file=sys.stderr,
+            )
     if not args.dry_run:
         for path in installed:
             print(f"installed and verified: {path}")

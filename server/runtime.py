@@ -74,6 +74,7 @@ DESKTOP_AVATAR_STATES = frozenset({
     "awkward", "smirk", "cheeky",
     "excited", "shy", "proud", "confused", "love", "panic", "bored",
     "greeting", "celebrate", "embarrassed", "smug", "playful", "surprised", "wave",
+    "laugh", "clap", "agree", "complain", "dance",
     "snacking", "drinking", "stretching", "snack", "drink", "stretch",
 })
 
@@ -172,6 +173,16 @@ class DesktopAvatarEndpoint(SocketChannelEndpoint):
             await cleanup_sidecar_endpoint(self._manager_endpoint())
         await super().stop_async()
 
+    def replacement_delivery_ready(self) -> bool:
+        """Publish only after the replacement sidecar completes its handshake."""
+
+        if not any(
+            bool(getattr(session, "ready_notified", False)) and not session.closed
+            for session in self.sessions.values()
+        ):
+            return False
+        return super().replacement_delivery_ready()
+
     def send_status(self, response_handle: Any, kind: str, payload: dict[str, Any]) -> None:
         """Project Pal turn hooks into the avatar's persistent activity state."""
 
@@ -189,6 +200,31 @@ class DesktopAvatarEndpoint(SocketChannelEndpoint):
             super().send_channel_message(response_handle, message)
             return
         self._send_tagged_message(response_handle, message)
+
+    def derive_default_reply_target(self) -> dict[str, Any]:
+        """Route active sends through the newest live sidecar socket session.
+
+        Browser windows connect to the sidecar, which broadcasts Pal output;
+        the sessions tracked here are provider-sidecar connections. During a
+        sidecar replacement there can briefly be more than one, so prefer the
+        newest still-open session. No open session means active delivery isn't
+        currently supported.
+        """
+        open_sessions = [
+            session for session in self.sessions.values() if not session.closed
+        ]
+        if not open_sessions:
+            return {}
+        # sessions preserves insertion order; the replacement connection is
+        # the last inserted still-open session.
+        session = open_sessions[-1]
+        return {
+            "session_id": session.session_id,
+            "request_id": "",
+            "control_scope_key": (
+                f"socket:{self.endpoint.endpoint_id}:{session.session_id}"
+            ),
+        }
 
     def send_stream_update(self, response_handle: Any, update: ChannelStreamUpdate) -> None:
         if update.kind == ChannelStreamUpdateKind.MESSAGE:
@@ -346,14 +382,15 @@ class DesktopAvatarEndpoint(SocketChannelEndpoint):
         loop: asyncio.AbstractEventLoop,
         timeout: float,
     ) -> bool:
-        try:
-            await asyncio.wait_for(
-                loop.run_in_executor(None, process.wait),
-                timeout=timeout,
-            )
-            return True
-        except asyncio.TimeoutError:
-            return process.poll() is not None
+        # A timed-out process.wait() in the default executor keeps its worker
+        # blocked until the child exits, and asyncio.run() then waits for that
+        # worker during loop shutdown. Polling keeps the timeout genuinely
+        # bounded and leaves no hidden executor lease behind.
+        del loop
+        deadline = time.monotonic() + max(0.0, timeout)
+        while process.poll() is None and time.monotonic() < deadline:
+            await asyncio.sleep(0.05)
+        return process.poll() is not None
 
 
 class DesktopAvatarProvider:

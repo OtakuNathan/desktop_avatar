@@ -50,24 +50,50 @@ def test_pal_skin_selects_dark_full_body_slot_and_notification_beep() -> None:
     assert loaded["dataset"] == {"avatarSkin": "pal"}
     assert loaded["lang"] == "en"
     assert config["renderer"] == "webgl"
-    assert "modelPath" not in config
+    assert config["skinManifestPath"] == "./desktop-avatar-skin-manifest.json"
     assert config["messageBeepEnabled"] is True
-    assert config["nativeMotions"]["smirk"] == ["smirk", 0]
 
 
 def test_pal_webgl_renderer_and_vendored_runtime_are_packaged() -> None:
     renderer = ROOT / "client/js/pal-webgl-avatar.js"
     source = renderer.read_text(encoding="utf-8")
     assert 'from "../vendor/three.module.min.js"' in source
+    assert 'from "../vendor/three-addons/loaders/GLTFLoader.js"' in source
     assert "window.PalWebGLAvatar" in source
-    assert "greeting" in source
+    assert 'dance: "NlaTrack.008"' in source
+    assert 'addEventListener("finished"' in source
+    assert "action.clampWhenFinished = true" in source
+    assert 'this.loadingStatus.textContent = "Loading Pal…"' in source
+    assert not (ROOT / "client/assets/model/pal/pal.glb").exists()
+    assert (ROOT / "client/vendor/three-addons/loaders/GLTFLoader.js").is_file()
+    assert (ROOT / "client/vendor/three-addons/utils/BufferGeometryUtils.js").is_file()
+    assert (ROOT / "client/vendor/three-addons/utils/SkeletonUtils.js").is_file()
     assert (ROOT / "client/vendor/three.module.min.js").is_file()
     assert (ROOT / "client/vendor/three.core.min.js").is_file()
     assert (ROOT / "THIRD_PARTY_LICENSES/three-0.185.1-MIT.txt").is_file()
     stylesheet = (ROOT / "client/css/style.css").read_text(encoding="utf-8")
     assert "height: min(52%, 420px) !important" in stylesheet
+    assert ".pal-webgl-loading" in stylesheet
     assert ".chat-input::-webkit-scrollbar" in stylesheet
     assert "scrollbar-width: none" in stylesheet
+
+
+def test_new_pal_actions_are_supported_end_to_end() -> None:
+    states = {"laugh", "clap", "agree", "complain", "dance"}
+    sidecar = (ROOT / "server/sidecar.py").read_text(encoding="utf-8")
+    runtime = (ROOT / "server/runtime.py").read_text(encoding="utf-8")
+    emotion = (ROOT / "plugin/desktop_avatar_emotion_introspection.py").read_text(
+        encoding="utf-8"
+    )
+    client = (ROOT / "client/js/main.js").read_text(encoding="utf-8")
+    assert "pal-webgl-bootstrap-loading" in client
+    assert 'type: "avatar_action_finished"' in client
+    for state in states:
+        quoted = f'"{state}"'
+        assert quoted in sidecar
+        assert quoted in runtime
+        assert quoted in emotion
+        assert f"{state}:" in client
 
 
 def test_unknown_skin_falls_back_to_sister() -> None:

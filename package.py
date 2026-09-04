@@ -28,6 +28,8 @@ ROOT_FILES = (
 SOURCE_DIRS = ("server", "plugin", "client", "THIRD_PARTY_LICENSES")
 IGNORED_NAMES = {"__pycache__", ".DS_Store"}
 IGNORED_SUFFIXES = {".pyc", ".pyo"}
+EXCLUDED_PACKAGE_PATHS = {"client/assets/model/pal/pal.glb"}
+EXCLUDED_PACKAGE_DIRS = {"client/assets/model/pal/reference"}
 VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
 
 
@@ -52,9 +54,15 @@ def validate_manifest_versions(version: str) -> None:
 
 def should_include(path: Path) -> bool:
     relative = path.relative_to(PACKAGE_ROOT)
+    relative_path = relative.as_posix()
     return not (
         any(part in IGNORED_NAMES for part in relative.parts)
         or path.suffix in IGNORED_SUFFIXES
+        or relative_path in EXCLUDED_PACKAGE_PATHS
+        or any(
+            relative_path == directory or relative_path.startswith(directory + "/")
+            for directory in EXCLUDED_PACKAGE_DIRS
+        )
     )
 
 

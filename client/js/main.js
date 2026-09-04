@@ -68,6 +68,11 @@
     "avatar-state-bored",
     "avatar-state-greeting",
     "avatar-state-celebrate",
+    "avatar-state-laugh",
+    "avatar-state-clap",
+    "avatar-state-agree",
+    "avatar-state-complain",
+    "avatar-state-dance",
     "avatar-state-snacking",
     "avatar-state-drinking",
     "avatar-state-stretching",
@@ -102,15 +107,51 @@
   ];
 
   // ---------- Avatar renderer ----------
+  async function resolvePalModelPath() {
+    const manifestPath = String(
+      CFG.skinManifestPath || "./desktop-avatar-skin-manifest.json",
+    );
+    const response = await fetch(manifestPath, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`Pal skin manifest is unavailable (${response.status})`);
+    }
+    const manifest = await response.json();
+    const digest = String(manifest.sha256 || "").toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(digest)) {
+      throw new Error("Pal skin manifest has an invalid SHA-256 digest");
+    }
+    const modelUrl = new URL(String(manifest.model_url || ""), window.location.href);
+    if (modelUrl.origin !== window.location.origin) {
+      throw new Error("Pal skin manifest points outside the desktop-avatar origin");
+    }
+    return modelUrl.href;
+  }
+
   async function initAvatar() {
     if (CFG.renderer === "webgl") {
+      const bootstrapLoading = document.createElement("div");
+      bootstrapLoading.className = "pal-webgl-loading pal-webgl-bootstrap-loading";
+      bootstrapLoading.setAttribute("role", "status");
+      bootstrapLoading.setAttribute("aria-live", "polite");
+      bootstrapLoading.textContent = "Loading Pal…";
+      avatarStage.appendChild(bootstrapLoading);
       try {
         const module = await import("./pal-webgl-avatar.js");
-        module.initPalWebGLAvatar({ container: avatarStage });
+        bootstrapLoading.remove();
+        await module.initPalWebGLAvatar({
+          container: avatarStage,
+          modelPath: await resolvePalModelPath(),
+          onActionFinished: (state) => {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            ws.send(JSON.stringify({ type: "avatar_action_finished", state: state }));
+          },
+        });
         bindAvatarWhenReady();
       } catch (error) {
         console.error("Pal WebGL renderer failed to initialize", error);
-        showHint("Pal's WebGL renderer failed to load. Check WebGL support and refresh the page.", true);
+        showHint("Pal's local skin failed to load. Reinstall the model cache, then refresh the page.", true);
+      } finally {
+        bootstrapLoading.remove();
       }
       return;
     }
@@ -187,6 +228,8 @@
       }, 220);
     });
     applyAvatarState(currentAvatarState);
+    // Optional local ST7789 mirror: enabled only with ?st7789=ws://... .
+    window.ST7789Bridge?.attach(canvas);
   }
 
   function playTapInteraction(event) {
@@ -194,13 +237,15 @@
     // small, reliable visual response when the model exposes no public motion API.
     const choices = ["curious", "wink", "happy"];
     const state = choices[Math.floor(Math.random() * choices.length)];
+    const isWebGL = CFG.renderer === "webgl";
     cancelIdleAction();
-    stopNativeMotion();
+    if (!isWebGL) stopNativeMotion();
     applyAvatarState(state);
     emitInteractionParticle(event, state);
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "avatar_action", state: state, duration: 1.1 }));
     }
+    if (isWebGL) return;
     clearTimeout(interactionTimer);
     interactionTimer = setTimeout(() => {
       applyAvatarState(currentAvatarState);
@@ -613,6 +658,11 @@
     bored: "Bored 🫠",
     greeting: "Greeting 👋",
     celebrate: "Celebrating 🎉",
+    laugh: "Laughing 😆",
+    clap: "Clapping 👏",
+    agree: "Agreeing 👍",
+    complain: "Complaining 😮‍💨",
+    dance: "Dancing 🕺",
     snacking: "Snacking 🍟",
     drinking: "Drinking 🥤",
     stretching: "Stretching 🙆",
@@ -642,7 +692,7 @@
     cancelIdleAction();
     clearTimeout(interactionTimer);
     interactionTimer = null;
-    stopNativeMotion();
+    if (CFG.renderer !== "webgl") stopNativeMotion();
     stateBadge.textContent = STATE_LABEL[currentAvatarState];
     stateBadge.className = "state-badge " + currentAvatarState;
     applyAvatarState(currentAvatarState);
@@ -735,6 +785,13 @@
       let frame;
       try { frame = JSON.parse(ev.data); } catch (e) { return; }
       handleFrame(frame);
+      const deliveryId = String(frame._avatar_delivery_id || "");
+      if (deliveryId && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "browser_delivery_ack",
+          delivery_id: deliveryId,
+        }));
+      }
     };
     ws.onclose = () => {
       setConnected(false);
@@ -766,6 +823,9 @@
         if (event === "start") {
           beginAvatarMessage(frame.message_id);
         } else if (event === "done") {
+          sealBubble(frame.message_id);
+        } else if (event === "notification") {
+          appendAvatarText(frame.text || "", frame.message_id);
           sealBubble(frame.message_id);
         } else {
           appendAvatarText(frame.text || "", frame.message_id);

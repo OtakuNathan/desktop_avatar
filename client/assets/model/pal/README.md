@@ -1,28 +1,46 @@
-# Pal WebGL model
+# Pal GLB model
 
-Pal's `?skin=pal` character is a procedural full-body Three.js model implemented
-in `client/js/pal-webgl-avatar.js`. It is rendered locally with WebGL and does not
-depend on Live2D, Cubism, a CDN, voice assets, or a remote model service.
+Pal's `?skin=pal` character is loaded by the local Three.js adapter in
+`client/js/pal-webgl-avatar.js`. Three.js and `GLTFLoader` ship with the
+desktop-avatar package; the larger GLB remains outside it.
 
-The images under `reference/` are generated art direction references:
+Install a model with:
+
+```bash
+python install.py --runtime-root ~/.pal --component channel --force \
+  --pal-model /path/to/pal.glb
+```
+
+The installer validates the animation contract and writes the model to
+`~/.pal/data/desktop_avatar/skins/pal/<sha256>.glb`. The sidecar exposes a
+small no-store manifest and serves the content-addressed model URL with an
+immutable browser cache policy.
+
+The model exposes nine animation clips:
+
+| Semantic state | GLB clip |
+| --- | --- |
+| `happy` | `NlaTrack` |
+| `laugh` | `NlaTrack.001` |
+| `celebrate` | `NlaTrack.002` |
+| `panic` | `NlaTrack.003` |
+| `clap` | `NlaTrack.004` |
+| `agree` | `NlaTrack.005` |
+| `greeting` | `NlaTrack.006` |
+| `complain` | `NlaTrack.007` |
+| `dance` | `NlaTrack.008` |
+
+The adapter keeps the existing sidecar state contract. States without an
+exact native clip either map to the nearest expressive animation or retain
+the shared CSS activity motion. User/Pal events still preempt idle actions in
+`client/js/main.js`; no animation state is stored in the browser.
+
+The images under `reference/` remain art-direction references:
 
 - `pal-neutral-front.png`: neutral full-body silhouette and materials.
 - `pal-action-concept.png`: identity, cookie prop, and mischievous pose.
 - `pal-expression-sheet.png`: face-screen expressions.
 - `pal-idle-action-sheet.png`: idle and action poses.
 
-The current model builds its helmet, face screen, antenna, torso, articulated
-arms and legs, chest core, cookie, and drink from Three.js geometry. A dynamic
-canvas texture renders Pal's cyan face. The same semantic state names used by
-the sidecar drive both face expressions and articulated body poses:
-
-```text
-standby sleeping thinking working happy sad angry shock wink curious awkward
-smirk cheeky excited shy proud confused love panic bored greeting celebrate
-snacking drinking stretching
-```
-
-This directory remains the stable location for model references. A future GLB
-artist model can replace the procedural mesh behind the same WebGL adapter and
-state contract without changing the sidecar, history, checklist, chat protocol,
-interaction handling, or notification beep.
+The GLB is supplied separately as a project-local asset. Confirm the
+applicable model-generation and redistribution terms before publishing it.

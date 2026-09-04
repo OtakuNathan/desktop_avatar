@@ -33,35 +33,39 @@ desktop_avatar/
     ├── css/style.css
     ├── js/config.js           # ★ WS 地址配置
     ├── js/main.js             # WS + 聊天 + 状态渲染
-    ├── js/pal-webgl-avatar.js # Pal 程序化全身 3D 模型与动作
+    ├── js/pal-webgl-avatar.js # Pal GLB 全身模型、骨骼动作与状态映射
     ├── js/live2d-motion-control.js # 稳定的原生 motion 适配层
     └── assets/model/
         ├── umaru/             # 小埋 Live2D 模型（Cubism2）
-        └── pal/               # Pal WebGL 建模参考与未来 GLB 替换边界
+        └── pal/               # Pal GLB 模型与美术参考
 ```
 
 浏览器默认仍加载妹妹皮肤。使用同一 sidecar 打开 `/?skin=pal` 可选择 Pal 的深色主题；
-该皮肤用离线 Three.js/WebGL 渲染有动态脸屏与关节动作的全身机器人，并在新回复开始时播放一次
+该皮肤用离线 Three.js/WebGL 渲染带 9 个原生骨骼动作的全身机器人，并在新回复开始时播放一次
 轻量合成 beep。它不依赖 Cubism、CDN、语音或外部模型服务。beep 使用 Web Audio，不包含音频素材，
 首次用户交互前遵守浏览器自动播放限制。
+
+Pal 的 GLB 不进入 provider 仓库或发布包。安装器校验动作后把模型写入 runtime-local、内容寻址的
+`<runtime-root>/data/desktop_avatar/skins/pal/<sha256>.glb`，sidecar 通过动态 manifest 暴露带哈希的
+URL，浏览器以 `immutable` 缓存一年。模型不变时只下载一次；更新模型会生成新 URL，并清理旧缓存。
 
 ## 服务端安装（Pal 主机）
 
 先核验下载包，再解压并运行安装器：
 
 ```bash
-sha256sum -c pal-desktop-avatar-0.1.11.tar.gz.sha256
-tar -xzf pal-desktop-avatar-0.1.11.tar.gz
-cd pal-desktop-avatar-0.1.11
-python install.py --dry-run --runtime-root ~/.pal
-python install.py --runtime-root ~/.pal
+sha256sum -c pal-desktop-avatar-0.1.13.tar.gz.sha256
+tar -xzf pal-desktop-avatar-0.1.13.tar.gz
+cd pal-desktop-avatar-0.1.13
+python install.py --dry-run --runtime-root ~/.pal --pal-model /path/to/pal.glb
+python install.py --runtime-root ~/.pal --pal-model /path/to/pal.glb
 ```
 
 两个模块也可以独立安装：
 
 ```bash
 python install.py --runtime-root /path/to/runtime --component all
-python install.py --runtime-root /path/to/runtime --component channel
+python install.py --runtime-root /path/to/runtime --component channel --pal-model /path/to/pal.glb
 python install.py --runtime-root /path/to/runtime --component emotion
 ```
 
@@ -86,8 +90,9 @@ pal-desktop-avatar-<version>.tar.gz
 pal-desktop-avatar-<version>.tar.gz.sha256
 ```
 
-归档只接受明确的源码、客户端资源和许可证目录，会排除 `dist/`、`__pycache__`、字节码及运行时
-数据。文件顺序、权限、所有者和时间戳会规范化，因此相同源码可得到相同 SHA-256。
+归档只接受明确的运行源码、客户端资源和许可证目录，会排除 `dist/`、`__pycache__`、字节码、
+运行时数据、外置 Pal GLB 以及仅供开发参考的 Pal 美术图。文件顺序、权限、所有者和时间戳会
+规范化，因此相同源码可得到相同 SHA-256。
 
 手动安装等价于：
 
