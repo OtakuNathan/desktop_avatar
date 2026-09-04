@@ -53,6 +53,7 @@ from pal.foundation.sidecar import pack_sidecar_message, read_sidecar_message
 SOCKET_PROTOCOL_TYPE: str = "user_message"
 MAX_FRAME_BYTES: int = 16 * 1024 * 1024
 PAL_DELIVERY_RECEIPT_MAX_ITEMS: int = 8192
+BROWSER_SEND_TIMEOUT_SECONDS: float = 1.0
 
 IDLE_TO_SLEEPING_SECONDS: float = 3600.0  # 1h without any traffic -> sleeping
 SLEEPING_WAKE_TIMEOUT: float = 3600.0
@@ -788,6 +789,41 @@ class ChatHistoryStore:
         )
         self._commit()
 
+    def store_completed_avatar(self, turn_id: str, content: str) -> None:
+        """Persist one canonical terminal chat projection."""
+
+        normalized_turn_id = str(turn_id or "")
+        text = str(content or "")
+        if not normalized_turn_id:
+            return
+        user = self._connection.execute(
+            "SELECT 1 FROM chat_messages WHERE turn_id = ? AND sender = 'user' LIMIT 1",
+            (normalized_turn_id,),
+        ).fetchone()
+        if user is None:
+            return
+        avatar = self._connection.execute(
+            "SELECT id FROM chat_messages "
+            "WHERE turn_id = ? AND sender = 'avatar' "
+            "ORDER BY created_at_us DESC, id DESC LIMIT 1",
+            (normalized_turn_id,),
+        ).fetchone()
+        if avatar is not None:
+            self._connection.execute(
+                "UPDATE chat_messages SET content = ?, complete = 1 WHERE id = ?",
+                (text, int(avatar["id"])),
+            )
+        elif text:
+            timestamp_us = max(time.time_ns() // 1_000, self._last_timestamp_us + 1)
+            self._last_timestamp_us = timestamp_us
+            self._connection.execute(
+                "INSERT INTO chat_messages("
+                "turn_id, sender, content, created_at_us, complete"
+                ") VALUES (?, 'avatar', ?, ?, 1)",
+                (normalized_turn_id, text, timestamp_us),
+            )
+        self._commit()
+
     def active_replies(self) -> dict[str, str]:
         rows = self._connection.execute(
             "SELECT turn_id, content FROM chat_messages "
@@ -953,6 +989,32 @@ class ChatHistoryStore:
         self._commit()
         return str(row["browser_delivery_id"]) if row is not None else ""
 
+    def store_completed_control(self, request_id: str, content: str) -> str:
+        """Persist one complete control notification for browser delivery."""
+
+        normalized = str(request_id or "")
+        text = str(content or "")
+        if not normalized or not text:
+            return ""
+        browser_delivery_id = f"control:{normalized}"
+        self._connection.execute(
+            "INSERT INTO control_replies("
+            "request_id, content, complete, browser_delivery_id, updated_at_us"
+            ") VALUES (?, ?, 1, ?, ?) "
+            "ON CONFLICT(request_id) DO UPDATE SET "
+            "content = excluded.content, complete = 1, "
+            "browser_delivery_id = excluded.browser_delivery_id, "
+            "updated_at_us = excluded.updated_at_us",
+            (
+                normalized,
+                text,
+                browser_delivery_id,
+                time.time_ns() // 1_000,
+            ),
+        )
+        self._commit()
+        return browser_delivery_id
+
     def active_control_replies(self) -> dict[str, str]:
         rows = self._connection.execute(
             "SELECT request_id, content FROM control_replies "
@@ -1035,6 +1097,8 @@ class AvatarWebSocketServer:
         self._ingress_queue: asyncio.Queue[PendingIngress] = asyncio.Queue()
         self._ingress_retry_delays = tuple(ingress_retry_delays)
         self._captured_frames: list[dict[str, Any]] | None = None
+        self._transient_delivery_receipts: deque[str] = deque()
+        self._transient_delivery_receipt_set: set[str] = set()
 
     async def broadcast_state(self, state: str) -> None:
         await self.broadcast_frame({"type": "avatar_state", "state": state})
@@ -1048,11 +1112,22 @@ class AvatarWebSocketServer:
         dead = []
         for ws in list(self._clients):
             try:
-                await ws.send(frame)
+                await asyncio.wait_for(
+                    ws.send(frame),
+                    timeout=BROWSER_SEND_TIMEOUT_SECONDS,
+                )
             except Exception:
                 dead.append(ws)
         for ws in dead:
             self._clients.discard(ws)
+            close = getattr(ws, "close", None)
+            if callable(close):
+                asyncio.create_task(self._close_slow_client(close))
+
+    @staticmethod
+    async def _close_slow_client(close: Callable[..., Any]) -> None:
+        with contextlib.suppress(Exception):
+            await close(code=1013, reason="client too slow")
 
     def _persist_projection(self, operation: Callable[[], Any]) -> None:
         try:
@@ -1061,25 +1136,44 @@ class AvatarWebSocketServer:
             if self._history.in_pal_delivery_transaction:
                 raise
 
-    def _persist_reply_delta(self, request_id: str, text: str) -> None:
-        if request_id and not request_id.startswith("chat_"):
-            self._persist_projection(
-                lambda: self._history.append_control_delta(request_id, text)
-            )
-            return
-        self._persist_projection(
-            lambda: self._history.append_avatar_delta(request_id, text)
-        )
-
-    def _complete_control_projection(self, request_id: str) -> str:
-        if not request_id or request_id.startswith("chat_"):
+    def _persist_terminal_reply(self, request_id: str, content: str) -> str:
+        if not request_id:
             return ""
         try:
-            return self._history.complete_control(request_id)
+            if request_id.startswith("chat_"):
+                self._history.store_completed_avatar(request_id, content)
+                return ""
+            return self._history.store_completed_control(request_id, content)
         except sqlite3.Error:
             if self._history.in_pal_delivery_transaction:
                 raise
             return ""
+
+    def _accept_transient_delivery(self, delivery_id: str) -> bool:
+        """Deduplicate hot-path frames in memory without a SQLite round trip."""
+
+        normalized = str(delivery_id or "")
+        if not normalized:
+            return True
+        if normalized in self._transient_delivery_receipt_set:
+            return False
+        self._transient_delivery_receipt_set.add(normalized)
+        self._transient_delivery_receipts.append(normalized)
+        while len(self._transient_delivery_receipts) > PAL_DELIVERY_RECEIPT_MAX_ITEMS:
+            retired = self._transient_delivery_receipts.popleft()
+            self._transient_delivery_receipt_set.discard(retired)
+        return True
+
+    @staticmethod
+    def _is_transient_reply(reply: dict[str, Any]) -> bool:
+        reply_type = str(reply.get("type") or "")
+        if reply_type in {"text_delta", "tool_call", "op_tool_call"}:
+            return True
+        return (
+            reply_type in {"llm_done", "done"}
+            and str(reply.get("finish_reason") or "").lower()
+            in {"tool_calls", "compact_required"}
+        )
 
     async def broadcast_tagged_message(
         self,
@@ -1427,6 +1521,11 @@ class AvatarWebSocketServer:
         while True:
             reply = await self._channel.read_reply()
             delivery_id = str(reply.get("_pal_delivery_id") or "")
+            if self._is_transient_reply(reply):
+                if self._accept_transient_delivery(delivery_id):
+                    await self._project_pal_reply(reply)
+                await self._channel.acknowledge_reply(reply)
+                continue
             captured: list[dict[str, Any]] = []
             with self._history.pal_delivery_transaction(delivery_id) as fresh:
                 if fresh:
@@ -1473,7 +1572,6 @@ class AvatarWebSocketServer:
                 self._sm.on_reply_delta()
             await self._start_reply(request_id)
             self._reply_parts.setdefault(request_id, []).append(delta)
-            self._persist_reply_delta(request_id, delta)
             await self.broadcast_chat(delta, event="delta", message_id=request_id)
             return
         if rtype in {
@@ -1504,7 +1602,6 @@ class AvatarWebSocketServer:
             if fallback:
                 await self._start_reply(request_id)
                 self._reply_parts.setdefault(request_id, []).append(fallback)
-                self._persist_reply_delta(request_id, fallback)
                 await self.broadcast_chat(fallback, event="delta", message_id=request_id)
             return
         if rtype in {"tool_call", "op_tool_call"}:
@@ -1529,7 +1626,6 @@ class AvatarWebSocketServer:
                 if missing_text:
                     await self._start_reply(request_id)
                     self._reply_parts.setdefault(request_id, []).append(missing_text)
-                    self._persist_reply_delta(request_id, missing_text)
                     await self.broadcast_chat(
                         missing_text,
                         event="delta",
@@ -1540,14 +1636,16 @@ class AvatarWebSocketServer:
                 error_text = self._apply_segment_break(request_id, error_text)
                 await self._start_reply(request_id)
                 self._reply_parts.setdefault(request_id, []).append(error_text)
-                self._persist_reply_delta(request_id, error_text)
                 await self.broadcast_chat(error_text, event="delta", message_id=request_id)
-            browser_delivery_id = self._complete_control_projection(request_id)
+            terminal_text = final_text or "".join(
+                self._reply_parts.get(request_id, [])
+            )
+            browser_delivery_id = self._persist_terminal_reply(
+                request_id,
+                terminal_text,
+            )
             self._reply_parts.pop(request_id, None)
             self._segment_break_pending.discard(request_id)
-            self._persist_projection(
-                lambda: self._history.complete_avatar(request_id)
-            )
             chat_reply = request_id.startswith("chat_")
             self._started_replies.discard(request_id)
             if request_id:

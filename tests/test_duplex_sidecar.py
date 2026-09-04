@@ -101,6 +101,19 @@ class _IncomingWebSocket(_WebSocket):
         return json.dumps(self.incoming.popleft())
 
 
+class _SlowWebSocket(_WebSocket):
+    def __init__(self) -> None:
+        super().__init__()
+        self.closed = False
+
+    async def send(self, frame: str) -> None:
+        _ = frame
+        await asyncio.Event().wait()
+
+    async def close(self, **_kwargs: object) -> None:
+        self.closed = True
+
+
 def _server(history: ChatHistoryStore, channel: _Channel | None = None) -> AvatarWebSocketServer:
     return AvatarWebSocketServer(
         state_machine=_StateMachine(),
@@ -110,6 +123,27 @@ def _server(history: ChatHistoryStore, channel: _Channel | None = None) -> Avata
         loop=asyncio.get_running_loop(),
         ingress_retry_delays=(0.0, 0.0),
     )
+
+
+def test_slow_browser_is_retired_without_blocking_reply_pump(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    async def scenario() -> None:
+        history = ChatHistoryStore(tmp_path / "history.sqlite3")
+        server = _server(history)
+        client = _SlowWebSocket()
+        server._clients.add(client)
+        monkeypatch.setattr(sidecar_module, "BROWSER_SEND_TIMEOUT_SECONDS", 0.01)
+
+        await server.broadcast_frame({"type": "chat_message", "text": "hello"})
+        await asyncio.sleep(0)
+
+        assert client not in server._clients
+        assert client.closed is True
+        history.close()
+
+    asyncio.run(scenario())
 
 
 def test_native_action_completion_resumes_the_latest_base_state() -> None:
@@ -391,9 +425,9 @@ def test_pal_projection_rolls_back_when_receipt_cannot_commit(tmp_path: Path) ->
     async def scenario() -> None:
         history = ChatHistoryStore(tmp_path / "history.sqlite3")
         channel = _ReplyChannel([{
-            "type": "text_delta",
+            "type": "done",
             "request_id": "control_0_atomic",
-            "text": "must be atomic",
+            "final_text": "must be atomic",
             "_pal_delivery_id": "delivery-atomic",
         }])
         server = _server(history, channel)
@@ -553,7 +587,7 @@ def test_active_interaction_projection_survives_restart_and_resolve_clears_it(tm
     asyncio.run(scenario())
 
 
-def test_active_chat_projection_survives_sidecar_restart_and_interleaved_control_reply(tmp_path: Path) -> None:
+def test_partial_chat_is_ephemeral_and_terminal_text_recovers_after_restart(tmp_path: Path) -> None:
     async def scenario() -> None:
         path = tmp_path / "history.sqlite3"
         history = ChatHistoryStore(path)
@@ -566,12 +600,12 @@ def test_active_chat_projection_survives_sidecar_restart_and_interleaved_control
         await server._project_pal_reply({"type": "text_delta", "request_id": chat_id, "text": "part one"})
         await server._project_pal_reply({"type": "text_delta", "request_id": "control_0_status", "text": "status"})
         await server._project_pal_reply({"type": "done", "request_id": "control_0_status"})
-        assert history.active_replies() == {chat_id: "part one"}
+        assert history.active_replies() == {}
         history.close()
 
         restored_history = ChatHistoryStore(path)
         restored = _server(restored_history)
-        assert restored._reply_parts == {chat_id: ["part one"]}
+        assert restored._reply_parts == {}
         reconnect = _WebSocket()
         await restored.handle(reconnect)
         history_frame = next(
@@ -580,19 +614,13 @@ def test_active_chat_projection_survives_sidecar_restart_and_interleaved_control
             if json.loads(frame).get("type") == "chat_history"
         )
         active = [item for item in history_frame["messages"] if item["sender"] == "avatar"]
-        assert active == [
-            {
-                "id": active[0]["id"],
-                "turn_id": chat_id,
-                "sender": "avatar",
-                "text": "part one",
-                "created_at_us": active[0]["created_at_us"],
-                "complete": False,
-            }
-        ]
+        assert active == []
 
-        await restored._project_pal_reply({"type": "text_delta", "request_id": chat_id, "text": " and two"})
-        await restored._project_pal_reply({"type": "done", "request_id": chat_id})
+        await restored._project_pal_reply({
+            "type": "done",
+            "request_id": chat_id,
+            "final_text": "part one and two",
+        })
         assert restored_history.active_replies() == {}
         messages = restored_history.page()["messages"]
         assert [item["text"] for item in messages] == ["keep working", "part one and two"]
