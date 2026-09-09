@@ -52,7 +52,10 @@ const AVATAR_SKINS = Object.freeze({
   }),
 });
 
-const selectedSkin = AVATAR_SKINS[requestedSkin] || AVATAR_SKINS.umaru;
+const selectedSkin = requestedSkin === "pal2d"
+  ? Object.freeze({ ...AVATAR_SKINS.pal, renderer: "svg" })
+  : requestedSkin === "pal3d" ? AVATAR_SKINS.pal
+  : AVATAR_SKINS[requestedSkin] || AVATAR_SKINS.umaru;
 document.documentElement.dataset.avatarSkin = selectedSkin.skin;
 document.documentElement.lang = selectedSkin.documentLanguage;
 

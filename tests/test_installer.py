@@ -143,3 +143,20 @@ def test_channel_package_does_not_embed_the_pal_model(tmp_path: Path) -> None:
     _destination, files = channel_files(tmp_path)
     assert all(item.source.name != "pal.glb" for item in files)
     assert all("assets/model/pal/reference/" not in item.relative_destination for item in files)
+
+
+def test_named_robot_model_installs_with_named_manifest(tmp_path: Path) -> None:
+    source = tmp_path / "robot.glb"
+    _write_glb(source, ["Robot_Idle_Pal", "Robot_Wave_Pal", "Robot_Yes_Pal", "Robot_Dance_Pal", "curious"])
+    install_pal_model(tmp_path / "runtime", source, dry_run=False)
+    manifest = json.loads((pal_skin_cache_root(tmp_path / "runtime") / "manifest.json").read_text())
+    assert manifest["clips"]["greeting"] == "Robot_Wave_Pal"
+    assert manifest["clips"]["confused"] == "curious"
+    assert "NlaTrack.006" not in manifest["clips"].values()
+
+
+def test_named_robot_model_requires_core_clips(tmp_path: Path) -> None:
+    source = tmp_path / "partial-robot.glb"
+    _write_glb(source, ["Robot_Wave_Pal"])
+    with pytest.raises(ValueError, match="missing required animation clips"):
+        validate_pal_glb(source)

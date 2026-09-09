@@ -41,9 +41,12 @@ desktop_avatar/
 ```
 
 浏览器默认仍加载妹妹皮肤。使用同一 sidecar 打开 `/?skin=pal` 可选择 Pal 的深色主题；
-该皮肤用离线 Three.js/WebGL 渲染带 9 个原生骨骼动作的全身机器人，并在新回复开始时播放一次
+该皮肤用离线 Three.js/WebGL 渲染全身机器人，兼容原有九动作模型和新版具名动作模型，并在新回复开始时播放一次
 轻量合成 beep。它不依赖 Cubism、CDN、语音或外部模型服务。beep 使用 Web Audio，不包含音频素材，
 首次用户交互前遵守浏览器自动播放限制。
+
+也可以通过 `/?skin=pal2d` 使用无需 GLB 的轻量 SVG 机器人；`/?skin=pal3d` 是 3D 皮肤的别名。
+动作映射、thinking/sleeping 定格和表情说明见 [形象文档](client/assets/model/pal/README.md)。
 
 Pal 的 GLB 不进入 provider 仓库或发布包。安装器校验动作后把模型写入 runtime-local、内容寻址的
 `<runtime-root>/data/desktop_avatar/skins/pal/<sha256>.glb`，sidecar 通过动态 manifest 暴露带哈希的

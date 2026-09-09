@@ -99,3 +99,16 @@ def test_new_pal_actions_are_supported_end_to_end() -> None:
 def test_unknown_skin_falls_back_to_sister() -> None:
     loaded = _load_config("http://127.0.0.1:8765/?skin=unknown")
     assert loaded["config"]["skin"] == "umaru"
+
+
+def test_pal_2d_selects_svg_with_existing_pal_theme():
+    loaded = _load_config("http://127.0.0.1:8765/?skin=pal2d")
+    assert loaded["config"]["renderer"] == "svg"
+    assert loaded["dataset"] == {"avatarSkin": "pal"}
+    assert loaded["config"]["displayName"] == "Pal"
+
+
+def test_pal_3d_remains_available():
+    loaded = _load_config("http://127.0.0.1:8765/?skin=pal3d")
+    assert loaded["config"]["renderer"] == "webgl"
+    assert loaded["dataset"] == {"avatarSkin": "pal"}

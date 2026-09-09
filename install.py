@@ -44,6 +44,26 @@ PAL_CLIP_MAP: dict[str, str] = {
     "dance": "NlaTrack.008",
 }
 
+PAL_ROBOT_CLIP_MAP: dict[str, str] = {
+    "standby": "Robot_Idle_Pal", "greeting": "Robot_Wave_Pal",
+    "agree": "Robot_Yes_Pal", "dance": "Robot_Dance_Pal",
+    "celebrate": "Robot_Dance_Pal", "happy": "NlaTrack",
+    "laugh": "NlaTrack", "proud": "Robot_ThumbsUp_Pal",
+    "sleeping": "sleepy", "thinking": "thinking", "working": "working",
+    "curious": "curious", "confused": "curious", "sad": "bored",
+    "bored": "bored", "angry": "angry", "awkward": "awkward",
+    "shy": "awkward", "shock": "shock", "panic": "shock",
+    "excited": "excited", "snacking": "snacking", "drinking": "drinking",
+    "complain": "Idle_No_Loop",
+}
+
+
+def pal_clip_map(clip_names: tuple[str, ...]) -> dict[str, str]:
+    if "Robot_Wave_Pal" in clip_names:
+        return {state: clip for state, clip in PAL_ROBOT_CLIP_MAP.items() if clip in clip_names}
+    return dict(PAL_CLIP_MAP)
+
+
 
 @dataclass(frozen=True)
 class InstallFile:
@@ -219,12 +239,13 @@ def validate_pal_glb(path: Path) -> tuple[str, ...]:
         if isinstance(animation, dict)
     }
     clip_names = tuple(animations_by_name)
-    missing = [clip for clip in PAL_CLIP_MAP.values() if clip not in animations_by_name]
+    required = ("Robot_Idle_Pal", "Robot_Wave_Pal", "Robot_Yes_Pal", "Robot_Dance_Pal") if "Robot_Wave_Pal" in clip_names else tuple(PAL_CLIP_MAP.values())
+    missing = [clip for clip in required if clip not in animations_by_name]
     if missing:
         raise ValueError("Pal GLB is missing required animation clips: " + ", ".join(missing))
     empty = [
         clip
-        for clip in PAL_CLIP_MAP.values()
+        for clip in pal_clip_map(clip_names).values()
         if not isinstance(animations_by_name[clip].get("channels"), list)
         or not animations_by_name[clip]["channels"]
         or not isinstance(animations_by_name[clip].get("samplers"), list)
@@ -277,7 +298,7 @@ def pal_skin_cache_root(runtime_root: Path) -> Path:
 def install_pal_model(runtime_root: Path, source: Path, *, dry_run: bool) -> Path:
     """Install one validated GLB under a content-addressed runtime-local name."""
     source = Path(source).expanduser().resolve()
-    validate_pal_glb(source)
+    clip_names = validate_pal_glb(source)
     digest = file_sha256(source)
     cache_root = pal_skin_cache_root(runtime_root)
     destination = cache_root / f"{digest}.glb"
@@ -293,7 +314,7 @@ def install_pal_model(runtime_root: Path, source: Path, *, dry_run: bool) -> Pat
         "skin": "pal",
         "sha256": digest,
         "filename": destination.name,
-        "clips": dict(PAL_CLIP_MAP),
+        "clips": pal_clip_map(clip_names),
     }
     atomic_write_json(cache_root / "manifest.json", manifest)
     for stale in cache_root.glob("*.glb"):

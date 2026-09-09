@@ -7,6 +7,8 @@
   "use strict";
 
   const CFG = window.AVATAR_CONFIG || {};
+  const isPalRenderer = CFG.renderer === "webgl" || CFG.renderer === "svg";
+  const palController = () => CFG.renderer === "svg" ? window.PalSVGAvatar : window.PalWebGLAvatar;
   const WS_URL = CFG.wsUrl || "ws://localhost:8765";
 
   // ---------- DOM ----------
@@ -128,7 +130,7 @@
   }
 
   async function initAvatar() {
-    if (CFG.renderer === "webgl") {
+    if (isPalRenderer) {
       const bootstrapLoading = document.createElement("div");
       bootstrapLoading.className = "pal-webgl-loading pal-webgl-bootstrap-loading";
       bootstrapLoading.setAttribute("role", "status");
@@ -136,11 +138,11 @@
       bootstrapLoading.textContent = "Loading Pal…";
       avatarStage.appendChild(bootstrapLoading);
       try {
-        const module = await import("./pal-webgl-avatar.js");
+        const module = await (CFG.renderer === "svg" ? import("./pal-svg-avatar.js") : import("./pal-webgl-avatar.js"));
         bootstrapLoading.remove();
-        await module.initPalWebGLAvatar({
+        await (CFG.renderer === "svg" ? module.initPalSVGAvatar : module.initPalWebGLAvatar)({
           container: avatarStage,
-          modelPath: await resolvePalModelPath(),
+          modelPath: CFG.renderer === "webgl" ? await resolvePalModelPath() : undefined,
           onActionFinished: (state) => {
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
             ws.send(JSON.stringify({ type: "avatar_action_finished", state: state }));
@@ -148,8 +150,8 @@
         });
         bindAvatarWhenReady();
       } catch (error) {
-        console.error("Pal WebGL renderer failed to initialize", error);
-        showHint("Pal's local skin failed to load. Reinstall the model cache, then refresh the page.", true);
+        console.error("Pal renderer failed to initialize", error);
+        showHint(CFG.renderer === "svg" ? "Pal failed to load. Refresh the page to retry." : "Pal's local skin failed to load. Reinstall the model cache, then refresh the page.", true);
       } finally {
         bootstrapLoading.remove();
       }
@@ -178,7 +180,8 @@
   }
 
   function avatarElement() {
-    return document.getElementById("pal-webgl-widget")
+    return document.getElementById("pal-svg-widget")
+      || document.getElementById("pal-webgl-widget")
       || document.getElementById("live2d-widget")
       || document.getElementById("pal-webgl-canvas")
       || document.getElementById("live2dcanvas")
@@ -188,7 +191,8 @@
   function bindAvatarWhenReady(attempt) {
     const tries = Number(attempt || 0);
     const avatar = avatarElement();
-    const canvas = document.getElementById("pal-webgl-canvas")
+    const canvas = document.getElementById("pal-svg-canvas")
+      || document.getElementById("pal-webgl-canvas")
       || document.getElementById("live2dcanvas")
       || document.querySelector("#avatar-stage canvas, body > canvas");
     if (!avatar || !canvas) {
@@ -237,7 +241,7 @@
     // small, reliable visual response when the model exposes no public motion API.
     const choices = ["curious", "wink", "happy"];
     const state = choices[Math.floor(Math.random() * choices.length)];
-    const isWebGL = CFG.renderer === "webgl";
+    const isWebGL = isPalRenderer;
     cancelIdleAction();
     if (!isWebGL) stopNativeMotion();
     applyAvatarState(state);
@@ -692,7 +696,7 @@
     cancelIdleAction();
     clearTimeout(interactionTimer);
     interactionTimer = null;
-    if (CFG.renderer !== "webgl") stopNativeMotion();
+    if (!isPalRenderer) stopNativeMotion();
     stateBadge.textContent = STATE_LABEL[currentAvatarState];
     stateBadge.className = "state-badge " + currentAvatarState;
     applyAvatarState(currentAvatarState);
@@ -712,8 +716,8 @@
   }
 
   function playNativeMotion(state) {
-    if (CFG.renderer === "webgl" && window.PalWebGLAvatar) {
-      window.PalWebGLAvatar.setState(state);
+    if (isPalRenderer && palController()) {
+      palController().setState(state);
       return true;
     }
     const motion = NATIVE_MOTIONS[state];
@@ -722,8 +726,8 @@
   }
 
   function stopNativeMotion() {
-    if (CFG.renderer === "webgl" && window.PalWebGLAvatar) {
-      window.PalWebGLAvatar.stopMotion();
+    if (isPalRenderer && palController()) {
+      palController().stopMotion();
       return;
     }
     if (window.L2Dwidget && typeof L2Dwidget.stopMotion === "function") {

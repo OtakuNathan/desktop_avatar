@@ -29,30 +29,44 @@
       schedule();
       return;
     }
-    const width = canvas.width;
-    const height = canvas.height;
+    const source = canvas;
+    const isSVG = source instanceof SVGElement;
+    const width = isSVG ? source.viewBox.baseVal.width : source.width;
+    const height = isSVG ? source.viewBox.baseVal.height : source.height;
     if (!width || !height) {
       schedule();
       return;
     }
     busy = true;
-    context.fillStyle = "#0a0e18";
-    context.fillRect(0, 0, output.width, output.height);
-    const scale = Math.min(output.width / width, output.height / height);
-    const drawWidth = Math.max(1, Math.round(width * scale));
-    const drawHeight = Math.max(1, Math.round(height * scale));
-    context.drawImage(
-      canvas,
-      (output.width - drawWidth) / 2,
-      (output.height - drawHeight) / 2,
-      drawWidth,
-      drawHeight,
-    );
-    output.toBlob((blob) => {
-      busy = false;
-      if (blob && socket && socket.readyState === WebSocket.OPEN) socket.send(blob);
-      schedule();
-    }, "image/jpeg", 0.72);
+    const draw = (image) => {
+      if (stopped) { busy = false; return; }
+      context.fillStyle = "#0a0e18";
+      context.fillRect(0, 0, output.width, output.height);
+      const scale = Math.min(output.width / width, output.height / height);
+      const drawWidth = Math.max(1, Math.round(width * scale));
+      const drawHeight = Math.max(1, Math.round(height * scale));
+      context.drawImage(image, (output.width - drawWidth) / 2, (output.height - drawHeight) / 2, drawWidth, drawHeight);
+      output.toBlob((blob) => {
+        busy = false;
+        if (!stopped && blob && socket?.readyState === WebSocket.OPEN) socket.send(blob);
+        schedule();
+      }, "image/jpeg", 0.72);
+    };
+    if (isSVG) {
+      // Serialize the current attribute-driven pose, not an independently
+      // animated copy. This keeps the SPI mirror in sync with the page.
+      const snapshot = source.cloneNode(true);
+      snapshot.setAttribute("width", String(width));
+      snapshot.setAttribute("height", String(height));
+      const blob = new Blob([new XMLSerializer().serializeToString(snapshot)], { type: "image/svg+xml" });
+      const url = URL.createObjectURL(blob);
+      const image = new Image();
+      image.onload = () => { URL.revokeObjectURL(url); draw(image); };
+      image.onerror = () => { URL.revokeObjectURL(url); busy = false; schedule(); };
+      image.src = url;
+    } else {
+      draw(source);
+    }
   }
 
   function connect() {
