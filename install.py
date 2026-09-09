@@ -24,6 +24,10 @@ EXTERNAL_PAL_MODEL_PATH = "assets/model/pal/pal.glb"
 PAL_REFERENCE_PATH_PREFIX = "assets/model/pal/reference/"
 LEGACY_MANAGED_FILES: dict[str, tuple[str, ...]] = {
     "channel": (
+        "client/vendor/L2Dwidget.min.js",
+        "client/vendor/L2Dwidget.0.min.js",
+        "client/js/live2d-motion-control.js",
+
         "client/assets/model/pal/pal.glb",
         "client/assets/model/pal/reference/pal-action-concept.png",
         "client/assets/model/pal/reference/pal-expression-sheet.png",
@@ -341,6 +345,12 @@ def install_component(
         legacy_path = destination_root / relative
         if legacy_path.is_file() or legacy_path.is_symlink():
             legacy_path.unlink()
+    if name == "channel":
+        retired_model = destination_root / "client/assets/model/umaru"
+        if retired_model.is_symlink():
+            retired_model.unlink()
+        elif retired_model.is_dir():
+            shutil.rmtree(retired_model)
     receipt = {
         "component": name,
         "package": "pal-desktop-avatar",

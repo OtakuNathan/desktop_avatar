@@ -1,13 +1,12 @@
 /* ============================================================
  * 妹妹的桌面小家 — 主逻辑
- * Live2D 小埋（L2Dwidget）+ 双击聊天框 + WebSocket ↔ 妹妹
+ * Pal WebGL / SVG + 双击聊天框 + WebSocket
  * 帧协议（JSON）：见 server/sidecar.py
  * ============================================================ */
 (function () {
   "use strict";
 
   const CFG = window.AVATAR_CONFIG || {};
-  const isPalRenderer = CFG.renderer === "webgl" || CFG.renderer === "svg";
   const palController = () => CFG.renderer === "svg" ? window.PalSVGAvatar : window.PalWebGLAvatar;
   const WS_URL = CFG.wsUrl || "ws://localhost:8765";
 
@@ -33,7 +32,6 @@
   let legacySealTimer = null;
   let composing = false;
   let currentAvatarState = "standby";
-  let interactionTimer = null;
   let avatarReadyTimer = null;
   let avatarTapTimer = null;
   let historyCursor = null;
@@ -80,28 +78,6 @@
     "avatar-state-drinking",
     "avatar-state-stretching",
   ];
-  const LEGACY_NATIVE_MOTIONS = {
-    happy: ["start", 2],
-    sad: ["shake", 2],
-    angry: ["shake", 1],
-    shock: ["shake", 0],
-    awkward: ["random", 3],
-    smirk: ["tap_body", 4],
-    cheeky: ["start", 7],
-    excited: ["tap_body", 6],
-    shy: ["tap_body", 1],
-    proud: ["random", 6],
-    confused: ["random", 2],
-    love: ["start", 5],
-    panic: ["random", 3],
-    bored: ["random", 4],
-    greeting: ["tap_body", 8],
-    celebrate: ["random", 0],
-    snacking: ["start", 6],
-    drinking: ["start", 3],
-    stretching: ["tap_body", 7],
-  };
-  const NATIVE_MOTIONS = CFG.nativeMotions || LEGACY_NATIVE_MOTIONS;
   const IDLE_ACTIONS = [
     { state: "bored", duration: 4200 },
     { state: "snacking", duration: 5200 },
@@ -131,61 +107,36 @@
   }
 
   async function initAvatar() {
-    if (isPalRenderer) {
-      const bootstrapLoading = document.createElement("div");
-      bootstrapLoading.className = "pal-webgl-loading pal-webgl-bootstrap-loading";
-      bootstrapLoading.setAttribute("role", "status");
-      bootstrapLoading.setAttribute("aria-live", "polite");
-      bootstrapLoading.textContent = "Loading Pal…";
-      avatarStage.appendChild(bootstrapLoading);
-      try {
-        const module = await (CFG.renderer === "svg" ? import("./pal-svg-avatar.js") : import("./pal-webgl-avatar.js"));
-        bootstrapLoading.remove();
-        await (CFG.renderer === "svg" ? module.initPalSVGAvatar : module.initPalWebGLAvatar)({
-          container: avatarStage,
-          modelPath: CFG.renderer === "webgl" ? await resolvePalModelPath() : undefined,
-          onActionFinished: (state) => {
-            if (!ws || ws.readyState !== WebSocket.OPEN) return;
-            ws.send(JSON.stringify({ type: "avatar_action_finished", state: state }));
-          },
-        });
-        bindAvatarWhenReady();
-      } catch (error) {
-        console.error("Pal renderer failed to initialize", error);
-        showHint(CFG.renderer === "svg" ? "Pal failed to load. Refresh the page to retry." : "Pal's local skin failed to load. Reinstall the model cache, then refresh the page.", true);
-      } finally {
-        bootstrapLoading.remove();
-      }
-      return;
+    const bootstrapLoading = document.createElement("div");
+    bootstrapLoading.className = "pal-webgl-loading pal-webgl-bootstrap-loading";
+    bootstrapLoading.setAttribute("role", "status");
+    bootstrapLoading.setAttribute("aria-live", "polite");
+    bootstrapLoading.textContent = "Loading Pal…";
+    avatarStage.appendChild(bootstrapLoading);
+    try {
+      const module = await (CFG.renderer === "svg" ? import("./pal-svg-avatar.js") : import("./pal-webgl-avatar.js"));
+      bootstrapLoading.remove();
+      await (CFG.renderer === "svg" ? module.initPalSVGAvatar : module.initPalWebGLAvatar)({
+        container: avatarStage,
+        modelPath: CFG.renderer === "webgl" ? await resolvePalModelPath() : undefined,
+        onActionFinished: (state) => {
+          if (!ws || ws.readyState !== WebSocket.OPEN) return;
+          ws.send(JSON.stringify({ type: "avatar_action_finished", state: state }));
+        },
+      });
+      bindAvatarWhenReady();
+    } catch (error) {
+      console.error("Pal renderer failed to initialize", error);
+      showHint(CFG.renderer === "svg" ? "Pal failed to load. Refresh the page to retry." : "Pal's local skin failed to load. Reinstall the model cache, then refresh the page.", true);
+    } finally {
+      bootstrapLoading.remove();
     }
-    if (!window.L2Dwidget) {
-      showHint("Live2D failed to load. Refresh the page or contact the administrator.", true);
-      return;
-    }
-    const display = CFG.display || {};
-    L2Dwidget.init({
-      model: {
-        jsonPath: CFG.modelPath || "./assets/model/umaru/model.json",
-      },
-      display: {
-        position: "right",
-        width: Number(display.width || 220),
-        height: Number(display.height || 420),
-        hOffset: Number(display.hOffset || 0),
-        vOffset: Number(display.vOffset || 0),
-      },
-      mobile: { show: true, scale: 0.6 },
-      react: { opacityDefault: 1.0, opacityOnHover: 1.0 },
-    });
-    bindAvatarWhenReady();
   }
 
   function avatarElement() {
     return document.getElementById("pal-svg-widget")
       || document.getElementById("pal-webgl-widget")
-      || document.getElementById("live2d-widget")
       || document.getElementById("pal-webgl-canvas")
-      || document.getElementById("live2dcanvas")
       || document.querySelector("#avatar-stage canvas, body > canvas");
   }
 
@@ -194,7 +145,6 @@
     const avatar = avatarElement();
     const canvas = document.getElementById("pal-svg-canvas")
       || document.getElementById("pal-webgl-canvas")
-      || document.getElementById("live2dcanvas")
       || document.querySelector("#avatar-stage canvas, body > canvas");
     if (!avatar || !canvas) {
       if (tries < 40) {
@@ -210,14 +160,6 @@
     const display = CFG.display || {};
     avatar.style.setProperty("--avatar-aspect", `${Number(display.width || 220)} / ${Number(display.height || 420)}`);
     canvas.style.cursor = "pointer";
-    // L2Dwidget binds its built-in tap handler on window. This model doesn't
-    // ship the expression manager that handler assumes, so a native tap calls
-    // setRandomExpression() and crashes. Keep rendering/head tracking intact,
-    // but stop tap-start events before they bubble to the library; our own
-    // interaction layer below is the sole click owner.
-    const stopNativeTap = (event) => event.stopPropagation();
-    canvas.addEventListener("mousedown", stopNativeTap);
-    canvas.addEventListener("touchstart", stopNativeTap, { passive: true });
     canvas.addEventListener("dblclick", (event) => {
       event.stopPropagation();
       clearTimeout(avatarTapTimer);
@@ -238,24 +180,14 @@
   }
 
   function playTapInteraction(event) {
-    // The Live2D widget still receives its native tap. This layer only adds a
-    // small, reliable visual response when the model exposes no public motion API.
     const choices = ["curious", "wink", "happy"];
     const state = choices[Math.floor(Math.random() * choices.length)];
-    const isWebGL = isPalRenderer;
     cancelIdleAction();
-    if (!isWebGL) stopNativeMotion();
     applyAvatarState(state);
     emitInteractionParticle(event, state);
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "avatar_action", state: state, duration: 1.1 }));
     }
-    if (isWebGL) return;
-    clearTimeout(interactionTimer);
-    interactionTimer = setTimeout(() => {
-      applyAvatarState(currentAvatarState);
-      if (currentAvatarState === "standby") scheduleIdleAction();
-    }, 1100);
   }
 
   function emitInteractionParticle(event, state) {
@@ -695,9 +627,6 @@
   function renderState(state) {
     currentAvatarState = normalizeState(state);
     cancelIdleAction();
-    clearTimeout(interactionTimer);
-    interactionTimer = null;
-    if (!isPalRenderer) stopNativeMotion();
     stateBadge.textContent = STATE_LABEL[currentAvatarState];
     stateBadge.className = "state-badge " + currentAvatarState;
     applyAvatarState(currentAvatarState);
@@ -717,23 +646,14 @@
   }
 
   function playNativeMotion(state) {
-    if (isPalRenderer && palController()) {
-      palController().setState(state);
-      return true;
-    }
-    const motion = NATIVE_MOTIONS[state];
-    if (!motion || !window.L2Dwidget || typeof L2Dwidget.startMotion !== "function") return false;
-    return L2Dwidget.startMotion(motion[0], motion[1]);
+    const controller = palController();
+    if (!controller) return false;
+    controller.setState(state);
+    return true;
   }
 
   function stopNativeMotion() {
-    if (isPalRenderer && palController()) {
-      palController().stopMotion();
-      return;
-    }
-    if (window.L2Dwidget && typeof L2Dwidget.stopMotion === "function") {
-      L2Dwidget.stopMotion();
-    }
+    palController()?.stopMotion();
   }
 
   function cancelIdleAction() {

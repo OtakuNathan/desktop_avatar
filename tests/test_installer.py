@@ -160,3 +160,19 @@ def test_named_robot_model_requires_core_clips(tmp_path: Path) -> None:
     _write_glb(source, ["Robot_Wave_Pal"])
     with pytest.raises(ValueError, match="missing required animation clips"):
         validate_pal_glb(source)
+
+
+def test_channel_update_removes_retired_renderer_and_preserves_local_files(tmp_path: Path) -> None:
+    destination, files = channel_files(tmp_path)
+    retired = ["client/vendor/L2Dwidget.min.js", "client/vendor/L2Dwidget.0.min.js",
+               "client/js/live2d-motion-control.js", "client/assets/model/umaru/model.moc"]
+    for relative in retired:
+        path = destination / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("retired")
+    local = destination / "local-note.txt"
+    local.write_text("keep")
+    install_component("channel", destination, files, version=validate_package(), dry_run=False)
+    assert all(not (destination / relative).exists() for relative in retired)
+    assert not (destination / "client/assets/model/umaru").exists()
+    assert local.read_text() == "keep"

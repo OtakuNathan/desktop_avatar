@@ -1,13 +1,12 @@
 # 妹妹的桌面小家（desktop_avatar）
 
-妈妈的桌面上住着一个会动、会睡、会聊天的妹妹（Live2D 小埋），也可以切换成 Pal 的
-WebGL 全身机器人。双击角色弹出聊天框，消息通过 WebSocket 进 Pal，回复流式显示，状态会驱动表情和动作。
+桌面上住着一个会动、会睡、会聊天的 Pal 机器人，支持 WebGL 全身模型和轻量 SVG 形象。双击角色弹出聊天框，消息通过 WebSocket 进 Pal，回复流式显示，状态会驱动表情和动作。
 
 ```
 妈妈的电脑                              Pal 主机
 ┌──────────────────────────┐   WS   ┌──────────────────────────────┐
 │ 客户端（ChromeOS 浏览器）    │ :8765  │ desktop_avatar channel provider │
-│ ├─ Live2D 小埋 / WebGL Pal │◄─────►│ ├─ runtime.py  端点+sidecar管理 │
+│ ├─ WebGL / SVG Pal │◄─────►│ ├─ runtime.py  端点+sidecar管理 │
 │ ├─ 双击弹聊天框（微信式）    │        │ ├─ sidecar.py  WS服务端+状态机  │
 │ ├─ 页面+模型均由 Pal 提供    │        │ │   ↕ provider-private socket   │
 │ └─ WS 收发消息/状态         │        │ └─ Pal channel → 妹妹(petra)   │
@@ -24,7 +23,7 @@ WebGL 全身机器人。双击角色弹出聊天框，消息通过 WebSocket 进
 工作区只保存在 sidecar 内存，网页重连可恢复当前 turn，turn 结束即清空；不写入聊天历史。
 最多保留最近 100 次调用，参数预览 8 KiB、diff 64 KiB，超出会标记省略。
 明确的密码、token、cookie、验证码等参数字段在显示副本中脱敏；普通文本和 diff 不做秘密扫描。
-向上滚动查看时不会被新调用强制拉回底部。该功能适用于 Live2D、Pal 3D 和 SVG 皮肤。
+向上滚动查看时不会被新调用强制拉回底部。该功能适用于 Pal 3D 和 SVG 皮肤。
 
 需要配套支持 `tool_activity` 的 Pal 版本，更新 Pal 后重启本体；重新安装／挂载此 channel
 并刷新网页以加载新客户端。不支持此回显的旧 Pal 仍可正常聊天，但不会显示工作区。
@@ -49,15 +48,13 @@ desktop_avatar/
     ├── js/config.js           # ★ WS 地址配置
     ├── js/main.js             # WS + 聊天 + 状态渲染
     ├── js/pal-webgl-avatar.js # Pal GLB 全身模型、骨骼动作与状态映射
-    ├── js/live2d-motion-control.js # 稳定的原生 motion 适配层
     └── assets/model/
-        ├── umaru/             # 小埋 Live2D 模型（Cubism2）
         └── pal/               # Pal GLB 模型与美术参考
 ```
 
-浏览器默认仍加载妹妹皮肤。使用同一 sidecar 打开 `/?skin=pal` 可选择 Pal 的深色主题；
+浏览器默认加载 Pal 3D 深色主题，`/?skin=pal` 和 `/?skin=pal3d` 也选择同一形象；
 该皮肤用离线 Three.js/WebGL 渲染全身机器人，兼容原有九动作模型和新版具名动作模型，并在新回复开始时播放一次
-轻量合成 beep。它不依赖 Cubism、CDN、语音或外部模型服务。beep 使用 Web Audio，不包含音频素材，
+轻量合成 beep。它不依赖 CDN、语音或外部模型服务。beep 使用 Web Audio，不包含音频素材，
 首次用户交互前遵守浏览器自动播放限制。
 
 也可以通过 `/?skin=pal2d` 使用无需 GLB 的轻量 SVG 机器人；`/?skin=pal3d` 是 3D 皮肤的别名。
@@ -144,7 +141,7 @@ cp plugin/{plugin.toml,runtime.py,desktop_avatar_emotion_introspection.py} \
 http://<家里Pal的IP>:8765/
 ```
 
-页面、Live2D 库、模型和 WebSocket 都通过同一个局域网端口提供。交互方式：
+页面、渲染库、模型和 WebSocket 都通过同一个局域网端口提供。交互方式：
 
 - **双击小埋** → 弹聊天框
 - **单击小埋** → 小互动（随机动作）
@@ -209,5 +206,4 @@ http://<家里Pal的IP>:8765/
 
 ## 分发说明
 
-第三方浏览器依赖的许可证已经随包保留，详见 `THIRD_PARTY_NOTICES.md`。当前小埋 Live2D
-模型在工作区中没有附带授权信息；公开分发前应替换为有明确再分发许可的模型。
+第三方浏览器依赖的许可证已经随包保留，详见 `THIRD_PARTY_NOTICES.md`。

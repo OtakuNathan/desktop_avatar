@@ -49,7 +49,7 @@ One-shot gestures report completion once. Wave torso/head lean is
 softened, with a 0.3-second transition and 0.85 playback speed. Horizontal
 root/hip travel is anchored to idle while vertical movement is retained.
 
-Pal no longer uses the CSS canvas transforms intended for Live2D. Orthographic camera
+Pal uses an orthographic camera instead of CSS canvas transforms. Camera
 framing samples all selected clips once at load, with edge padding;
 state changes do not move the camera, and forward lean does not magnify the model. This intentionally leaves room for
 hands and larger poses. Bounds use per-part vertex samples to limit startup

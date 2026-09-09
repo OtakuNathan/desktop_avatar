@@ -409,11 +409,10 @@ body {
   text-align: right;
 }
 
-#avatar-stage.has-checklist :is(#live2d-widget, #pal-webgl-widget) {
+#avatar-stage.has-checklist :is(#pal-webgl-widget) {
   width: min(calc(100% - 16px), 31vh) !important;
 }
 
-#live2d-widget,
 #pal-webgl-widget {
   position: absolute !important;
   left: 50% !important;
@@ -501,7 +500,7 @@ html[data-avatar-skin="pal"] .checklist-progress {
 html[data-avatar-skin="pal"] .checklist-item.completed { color: rgba(178, 211, 224, 0.5); }
 html[data-avatar-skin="pal"] .checklist-item.in-progress { color: #65d8ff; }
 html[data-avatar-skin="pal"] .checklist-overflow { color: rgba(181, 217, 230, 0.62); }
-html[data-avatar-skin="pal"] :is(#live2dcanvas, #pal-webgl-canvas) {
+html[data-avatar-skin="pal"] :is(#pal-webgl-canvas) {
   filter: drop-shadow(0 0 14px rgba(0, 177, 235, 0.16));
 }
 html[data-avatar-skin="pal"] #pal-webgl-widget,
@@ -510,7 +509,6 @@ html[data-avatar-skin="pal"] #avatar-stage.has-checklist #pal-webgl-widget {
   height: min(52%, 420px) !important;
   aspect-ratio: 260 / 520;
 }
-#live2dcanvas,
 #pal-webgl-canvas {
   width: 100% !important;
   height: 100% !important;
@@ -556,54 +554,54 @@ html[data-avatar-skin="pal"] #avatar-stage.has-checklist #pal-webgl-widget {
   to { rotate: 1turn; }
 }
 
-/* State-driven wrapper motion complements both the Live2D and WebGL models. */
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-standby { animation: avatar-breathe 4.2s ease-in-out infinite; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-sleeping {
+/* State-driven wrapper motion complements the Pal models. */
+:is(#pal-webgl-widget).avatar-state-standby { animation: avatar-breathe 4.2s ease-in-out infinite; }
+:is(#pal-webgl-widget).avatar-state-sleeping {
   animation: avatar-sleep 5.5s ease-in-out infinite;
   opacity: 0.58;
   filter: saturate(0.72) brightness(0.9);
 }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-thinking { animation: avatar-think 1.35s ease-in-out infinite; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-working { animation: avatar-work 0.72s ease-in-out infinite; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-happy { animation: avatar-happy 0.62s ease-out 2; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-sad {
+:is(#pal-webgl-widget).avatar-state-thinking { animation: avatar-think 1.35s ease-in-out infinite; }
+:is(#pal-webgl-widget).avatar-state-working { animation: avatar-work 0.72s ease-in-out infinite; }
+:is(#pal-webgl-widget).avatar-state-happy { animation: avatar-happy 0.62s ease-out 2; }
+:is(#pal-webgl-widget).avatar-state-sad {
   animation: avatar-sad 2.4s ease-in-out infinite;
   filter: saturate(0.68) brightness(0.9);
 }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-angry {
+:is(#pal-webgl-widget).avatar-state-angry {
   animation: avatar-angry 0.18s linear 5;
   filter: saturate(1.3) contrast(1.08);
 }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-shock { animation: avatar-shock 0.55s cubic-bezier(.2,.9,.3,1.25) 1; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-wink { animation: avatar-wink 0.72s ease-in-out 1; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-curious { animation: avatar-curious 1.1s ease-in-out 1; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-awkward { animation: avatar-awkward 0.42s ease-in-out 3; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-smirk {
+:is(#pal-webgl-widget).avatar-state-shock { animation: avatar-shock 0.55s cubic-bezier(.2,.9,.3,1.25) 1; }
+:is(#pal-webgl-widget).avatar-state-wink { animation: avatar-wink 0.72s ease-in-out 1; }
+:is(#pal-webgl-widget).avatar-state-curious { animation: avatar-curious 1.1s ease-in-out 1; }
+:is(#pal-webgl-widget).avatar-state-awkward { animation: avatar-awkward 0.42s ease-in-out 3; }
+:is(#pal-webgl-widget).avatar-state-smirk {
   animation: avatar-smirk 1.15s cubic-bezier(.2,.75,.35,1) 1;
   filter: saturate(1.08) contrast(1.04);
 }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-cheeky { animation: avatar-cheeky 0.48s ease-in-out 3; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-excited { animation: avatar-excited 0.52s ease-in-out 3; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-shy {
+:is(#pal-webgl-widget).avatar-state-cheeky { animation: avatar-cheeky 0.48s ease-in-out 3; }
+:is(#pal-webgl-widget).avatar-state-excited { animation: avatar-excited 0.52s ease-in-out 3; }
+:is(#pal-webgl-widget).avatar-state-shy {
   animation: avatar-shy 1.35s ease-in-out 1;
   filter: saturate(0.92) brightness(1.03);
 }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-proud { animation: avatar-proud 1.25s ease-in-out 1; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-confused { animation: avatar-confused 0.72s ease-in-out 2; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-love {
+:is(#pal-webgl-widget).avatar-state-proud { animation: avatar-proud 1.25s ease-in-out 1; }
+:is(#pal-webgl-widget).avatar-state-confused { animation: avatar-confused 0.72s ease-in-out 2; }
+:is(#pal-webgl-widget).avatar-state-love {
   animation: avatar-love 0.72s ease-in-out 2;
   filter: saturate(1.18) drop-shadow(0 0 8px rgba(236, 64, 122, 0.42));
 }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-panic { animation: avatar-panic 0.16s linear 8; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-bored {
+:is(#pal-webgl-widget).avatar-state-panic { animation: avatar-panic 0.16s linear 8; }
+:is(#pal-webgl-widget).avatar-state-bored {
   animation: avatar-bored 2.2s ease-in-out infinite;
   filter: saturate(0.72) brightness(0.94);
 }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-greeting { animation: avatar-greeting 0.58s ease-in-out 3; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-celebrate { animation: avatar-celebrate 0.82s cubic-bezier(.2,.8,.3,1.2) 2; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-snacking { animation: avatar-snacking 0.76s ease-in-out infinite; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-drinking { animation: avatar-drinking 1.15s ease-in-out infinite; }
-:is(#live2d-widget, #pal-webgl-widget).avatar-state-stretching { animation: avatar-stretching 1.7s ease-in-out 1; }
+:is(#pal-webgl-widget).avatar-state-greeting { animation: avatar-greeting 0.58s ease-in-out 3; }
+:is(#pal-webgl-widget).avatar-state-celebrate { animation: avatar-celebrate 0.82s cubic-bezier(.2,.8,.3,1.2) 2; }
+:is(#pal-webgl-widget).avatar-state-snacking { animation: avatar-snacking 0.76s ease-in-out infinite; }
+:is(#pal-webgl-widget).avatar-state-drinking { animation: avatar-drinking 1.15s ease-in-out infinite; }
+:is(#pal-webgl-widget).avatar-state-stretching { animation: avatar-stretching 1.7s ease-in-out 1; }
 
 @keyframes avatar-breathe {
   0%, 100% { transform: translateY(0) scale(1); }
@@ -734,7 +732,7 @@ html[data-avatar-skin="pal"] #avatar-stage.has-checklist #pal-webgl-widget {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :is(#live2d-widget, #pal-webgl-widget)[class*="avatar-state-"] { animation: none !important; }
+  :is(#pal-webgl-widget)[class*="avatar-state-"] { animation: none !important; }
   .avatar-interaction-particle { animation-duration: 0.01ms; }
 }
 
@@ -827,4 +825,4 @@ html[data-avatar-skin="pal"] #pal-webgl-widget[class*="avatar-state-"] {
 html[data-avatar-skin="pal"] .tool-workspace { color: #d4e7ee; background: #0b1a27ed; border-color: #244456; }
 html[data-avatar-skin="pal"] .tool-call-status.succeeded, html[data-avatar-skin="pal"] .diff-add { color: #77dba7; }
 html[data-avatar-skin="pal"] .tool-call-status.failed, html[data-avatar-skin="pal"] .diff-remove { color: #ffa0a0; }
-#avatar-stage.has-tool-workspace :is(#pal-svg-widget, #pal-webgl-widget, #live2d-widget) { max-height: 44%; }
+#avatar-stage.has-tool-workspace :is(#pal-svg-widget, #pal-webgl-widget) { max-height: 44%; }

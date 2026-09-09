@@ -1,4 +1,4 @@
-/* Make the Live2D WebGL backbuffer readable for the optional ST7789 mirror.
+/* Make the WebGL backbuffer readable for the optional ST7789 mirror.
  * This is a no-op unless ?st7789=... is present, so normal Desktop Avatar
  * rendering is unchanged.
  */

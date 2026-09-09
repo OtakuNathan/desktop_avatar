@@ -35,13 +35,12 @@ process.stdout.write(JSON.stringify({
     return json.loads(result.stdout)
 
 
-def test_default_skin_preserves_sister_model_and_silences_beep() -> None:
+def test_default_skin_selects_pal_webgl() -> None:
     loaded = _load_config("http://127.0.0.1:8765/")
     config = loaded["config"]
-    assert loaded["dataset"] == {"avatarSkin": "umaru"}
-    assert config["renderer"] == "live2d"
-    assert config["modelPath"] == "./assets/model/umaru/model.json"
-    assert config["messageBeepEnabled"] is False
+    assert loaded["dataset"] == {"avatarSkin": "pal"}
+    assert config["renderer"] == "webgl"
+    assert config["messageBeepEnabled"] is True
 
 
 def test_pal_skin_selects_dark_full_body_slot_and_notification_beep() -> None:
@@ -96,9 +95,9 @@ def test_new_pal_actions_are_supported_end_to_end() -> None:
         assert f"{state}:" in client
 
 
-def test_unknown_skin_falls_back_to_sister() -> None:
+def test_unknown_skin_falls_back_to_pal() -> None:
     loaded = _load_config("http://127.0.0.1:8765/?skin=unknown")
-    assert loaded["config"]["skin"] == "umaru"
+    assert loaded["config"]["skin"] == "pal"
 
 
 def test_pal_2d_selects_svg_with_existing_pal_theme():
