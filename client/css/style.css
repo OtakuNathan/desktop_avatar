@@ -438,9 +438,8 @@ html[data-avatar-skin="pal"] {
 }
 html[data-avatar-skin="pal"] body {
   background-color: #030712;
-  background-image:
-    linear-gradient(rgba(5, 12, 23, 0.20), rgba(5, 12, 23, 0.32)),
-    url("../assets/background/cozy-room.png");
+  background-image: none;
+  isolation: isolate;
 }
 html[data-avatar-skin="pal"] .chat-panel {
   background: rgba(5, 13, 24, 0.30);
@@ -826,3 +825,42 @@ html[data-avatar-skin="pal"] .tool-workspace { color: #d4e7ee; background: #0b1a
 html[data-avatar-skin="pal"] .tool-call-status.succeeded, html[data-avatar-skin="pal"] .diff-add { color: #77dba7; }
 html[data-avatar-skin="pal"] .tool-call-status.failed, html[data-avatar-skin="pal"] .diff-remove { color: #ffa0a0; }
 #avatar-stage.has-tool-workspace :is(#pal-svg-widget, #pal-webgl-widget) { max-height: 44%; }
+
+/* Image and light share one cover-scaled plane, so resizing never moves the
+   animated screen away from its painted bezel. Source: 1672 x 941 pixels. */
+.room-background {
+  position: fixed; inset: 0; z-index: -1;
+  overflow: hidden; pointer-events: none;
+  background: #080f1c;
+}
+.room-scene {
+  position: absolute; left: 50%; top: 50%;
+  width: max(100vw, 177.6833vh); aspect-ratio: 1672 / 941;
+  transform: translate(-50%, -50%);
+  background: url("../assets/background/pal-night-room.png") center / 100% 100% no-repeat;
+}
+.room-screen-glow {
+  position: absolute; left: 28.53%; top: 23.80%; width: 16.51%; height: 16.26%;
+  clip-path: polygon(0 0, 100% 2.6%, 99.6% 97.4%, 0.4% 100%);
+  background: linear-gradient(125deg, #2480ad, #5ebdd0 55%, #216b94);
+  opacity: .12;
+  animation: room-monitor-light 11s ease-in-out infinite;
+}
+.room-screen-reflection {
+  position: absolute; left: 27%; top: 40.5%; width: 22%; height: 7%;
+  background: radial-gradient(ellipse, #53b5d966, transparent 70%);
+  opacity: .12;
+  animation: room-monitor-light 11s ease-in-out infinite;
+}
+@keyframes room-monitor-light {
+  0%, 100% { opacity: .10; }
+  35% { opacity: .24; }
+  65% { opacity: .16; }
+  80% { opacity: .21; }
+}
+.room-animation-paused :is(.room-screen-glow, .room-screen-reflection) {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .room-screen-glow, .room-screen-reflection { animation: none; opacity: .12; }
+}

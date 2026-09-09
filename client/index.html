@@ -5,9 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Desktop Companion</title>
 <script src="js/config.js?v=9"></script>
-<link rel="stylesheet" href="css/style.css?v=10">
+<link rel="stylesheet" href="css/style.css?v=11">
 </head>
 <body>
+  <div class="room-background" aria-hidden="true">
+    <div class="room-scene">
+      <div class="room-screen-glow"></div>
+      <div class="room-screen-reflection"></div>
+    </div>
+  </div>
   <!-- 聊天面板（双击小埋弹出） -->
   <div id="chat-panel" class="chat-panel hidden" role="dialog" aria-label="和妹妹聊天">
     <div class="chat-header">
@@ -48,6 +54,6 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="js/tool-workspace.js?v=1"></script>
-  <script src="js/main.js?v=9"></script>
+  <script src="js/main.js?v=10"></script>
 </body>
 </html>

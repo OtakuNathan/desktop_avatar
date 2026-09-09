@@ -7,6 +7,9 @@
   "use strict";
 
   const CFG = window.AVATAR_CONFIG || {};
+  const syncRoomMotion = () => document.body.classList.toggle("room-animation-paused", document.hidden);
+  document.addEventListener("visibilitychange", syncRoomMotion);
+  syncRoomMotion();
   const palController = () => CFG.renderer === "svg" ? window.PalSVGAvatar : window.PalWebGLAvatar;
   const WS_URL = CFG.wsUrl || "ws://localhost:8765";
 
