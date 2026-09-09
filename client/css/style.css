@@ -793,3 +793,38 @@ html[data-avatar-skin="pal"] #pal-webgl-widget[class*="avatar-state-"] {
   cursor: pointer;
   pointer-events: auto;
 }
+
+/* Plan and execution share the upper stage; the character retains its space. */
+.avatar-work-stack {
+  position: absolute; top: 52px; bottom: 46%; left: 10px; right: 10px;
+  z-index: 28; display: flex; flex-direction: column; gap: 8px; min-height: 0;
+  pointer-events: none;
+}
+.avatar-work-stack .checklist-panel {
+  position: relative; top: auto; left: auto; right: auto; flex: 0 1 auto;
+  max-height: 50%; overflow-y: auto; pointer-events: auto;
+}
+.tool-workspace {
+  display: flex; flex: 1 1 0; flex-direction: column; min-height: 70px;
+  border: 1px solid #aeb8c6; border-radius: 12px; overflow: hidden;
+  background: #fff8ed; color: #403b36; pointer-events: auto;
+}
+.tool-workspace.hidden { display: none; }
+.tool-workspace-header { padding: 7px 9px; font-size: 12px; font-weight: 600; }
+#tool-workspace-count { font-weight: 400; opacity: .7; }
+.tool-workspace-list { overflow: auto; min-height: 0; flex: 1; padding: 0 8px 8px; overflow-anchor: none; }
+.tool-call { border-top: 1px solid #919ba344; padding: 6px 0; font-size: 11px; }
+.tool-call-heading { display: flex; flex-wrap: wrap; gap: 4px 8px; justify-content: space-between; }
+.tool-call-heading strong { overflow-wrap: anywhere; }
+.tool-call-status { color: #746849; }
+.tool-call-status.succeeded { color: #198456; }
+.tool-call-status.failed, .tool-call-status.cancelled { color: #c24b4b; }
+.tool-call-status.background { color: #377cd4; }
+.tool-call summary { cursor: pointer; padding-top: 5px; }
+.tool-call pre { max-height: 180px; overflow: auto; white-space: pre; font: 11px/1.5 monospace; margin: 5px 0; }
+.diff-add { color: #198456; background: #39a96b18; }
+.diff-remove { color: #c24b4b; background: #dc55551a; }
+html[data-avatar-skin="pal"] .tool-workspace { color: #d4e7ee; background: #0b1a27ed; border-color: #244456; }
+html[data-avatar-skin="pal"] .tool-call-status.succeeded, html[data-avatar-skin="pal"] .diff-add { color: #77dba7; }
+html[data-avatar-skin="pal"] .tool-call-status.failed, html[data-avatar-skin="pal"] .diff-remove { color: #ffa0a0; }
+#avatar-stage.has-tool-workspace :is(#pal-svg-widget, #pal-webgl-widget, #live2d-widget) { max-height: 44%; }

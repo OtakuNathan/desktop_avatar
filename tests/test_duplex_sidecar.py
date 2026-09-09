@@ -722,3 +722,30 @@ def test_visible_text_rounds_are_paragraph_separated_inside_one_bubble(tmp_path:
         history.close()
 
     asyncio.run(scenario())
+
+
+def test_tool_workspace_reconnect_restores_only_current_turn(tmp_path: Path) -> None:
+    async def run() -> None:
+        history = ChatHistoryStore(tmp_path / 'activity.sqlite3')
+        server = _server(history)
+        await server._project_pal_reply({'type': 'tool_activity', 'payload': {
+            'action': 'begin', 'turn_id': 'active',
+        }})
+        await server._project_pal_reply({'type': 'tool_activity', 'payload': {
+            'action': 'call', 'turn_id': 'active', 'call_id': 'one',
+            'tool': 'read_file', 'arguments': '{}', 'status': 'succeeded',
+        }})
+        ws = _WebSocket()
+        await server.handle(ws)
+        frames = [json.loads(raw) for raw in ws.sent]
+        activity = [f['payload'] for f in frames if f['type'] == 'tool_activity']
+        assert [f['action'] for f in activity] == ['begin', 'call']
+        assert activity[-1]['call_id'] == 'one'
+        await server._project_pal_reply({'type': 'tool_activity', 'payload': {
+            'action': 'end', 'turn_id': 'active',
+        }})
+        ws = _WebSocket()
+        await server.handle(ws)
+        assert not any(json.loads(raw)['type'] == 'tool_activity' for raw in ws.sent)
+
+    asyncio.run(run())

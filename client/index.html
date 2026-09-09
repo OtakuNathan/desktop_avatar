@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Desktop Companion</title>
 <script src="js/config.js?v=7"></script>
-<link rel="stylesheet" href="css/style.css?v=7">
+<link rel="stylesheet" href="css/style.css?v=8">
 </head>
 <body>
   <!-- 聊天面板（双击小埋弹出） -->
@@ -28,6 +28,7 @@
   <!-- 角色拥有独立舞台，不与聊天区叠放。选中的渲染器会把角色移入这里。 -->
   <aside id="avatar-stage" aria-label="妹妹的桌面形象">
     <div id="state-badge" class="state-badge">standby</div>
+    <div class="avatar-work-stack">
     <section id="checklist-panel" class="checklist-panel hidden" aria-live="polite">
       <div class="checklist-header">
         <span>正在做</span>
@@ -35,6 +36,11 @@
       </div>
       <ol id="checklist-items" class="checklist-items"></ol>
     </section>
+    <section id="tool-workspace" class="tool-workspace hidden" aria-label="Tool activity">
+      <div class="tool-workspace-header">Tools <span id="tool-workspace-count"></span></div>
+      <div id="tool-workspace-list" class="tool-workspace-list"></div>
+    </section>
+    </div>
   </aside>
 
   <script src="js/st7789-capture-compat.js?v=1"></script>
@@ -43,6 +49,7 @@
   <script src="js/st7789-bridge.js?v=1"></script>
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
-  <script src="js/main.js?v=7"></script>
+  <script src="js/tool-workspace.js?v=1"></script>
+  <script src="js/main.js?v=8"></script>
 </body>
 </html>

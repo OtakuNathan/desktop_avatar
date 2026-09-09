@@ -1080,6 +1080,11 @@ class AvatarWebSocketServer:
         self._clients: set[websockets.WebSocketServerProtocol] = set()
         self._connected = 0
         self._history_generation = 0
+        if __package__:
+            from .tool_activity import ToolActivityProjection
+        else:
+            from tool_activity import ToolActivityProjection
+        self._tool_activity = ToolActivityProjection()
         self._tagged_messages: dict[str, dict[str, Any]] = history.load_tagged_messages()
         self._interactions: dict[str, dict[str, Any]] = history.load_interactions()
         self._reply_parts: dict[str, list[str]] = {
@@ -1167,7 +1172,7 @@ class AvatarWebSocketServer:
     @staticmethod
     def _is_transient_reply(reply: dict[str, Any]) -> bool:
         reply_type = str(reply.get("type") or "")
-        if reply_type in {"text_delta", "tool_call", "op_tool_call"}:
+        if reply_type in {"text_delta", "tool_call", "op_tool_call", "tool_activity"}:
             return True
         return (
             reply_type in {"llm_done", "done"}
@@ -1289,6 +1294,8 @@ class AvatarWebSocketServer:
         try:
             await ws.send(json.dumps({"type": "avatar_state", "state": self._sm.current_state}))
             await self.send_history_page(ws, mode="replace")
+            for activity in self._tool_activity.frames():
+                await ws.send(json.dumps(activity, ensure_ascii=False))
             for tagged in self._tagged_messages.values():
                 await ws.send(json.dumps(tagged, ensure_ascii=False))
             for interaction in self._interactions.values():
@@ -1561,6 +1568,13 @@ class AvatarWebSocketServer:
 
     async def _project_pal_reply(self, reply: dict[str, Any]) -> None:
         """Project one Pal frame without assuming responses are contiguous."""
+        if reply.get("type") == "tool_activity":
+            payload = reply.get("payload")
+            if isinstance(payload, dict):
+                frame = self._tool_activity.apply(payload)
+                if frame is not None:
+                    await self.broadcast_frame(frame)
+            return
         rtype = str(reply.get("type") or "")
         request_id = str(reply.get("request_id") or "")
         if rtype == "text_delta":

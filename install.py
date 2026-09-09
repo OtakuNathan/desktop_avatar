@@ -118,7 +118,7 @@ def channel_files(runtime_root: Path) -> tuple[Path, list[InstallFile]]:
     destination_root = runtime_root / "channel" / "providers" / "desktop_avatar"
     files = [
         InstallFile(PACKAGE_ROOT / "server" / name, destination_root / name, name)
-        for name in ("provider.toml", "runtime.py", "sidecar.py")
+        for name in ("provider.toml", "runtime.py", "sidecar.py", "tool_activity.py")
     ]
     for source in included_files(PACKAGE_ROOT / "client"):
         relative = source.relative_to(PACKAGE_ROOT / "client")

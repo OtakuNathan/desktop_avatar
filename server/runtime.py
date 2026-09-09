@@ -183,9 +183,21 @@ class DesktopAvatarEndpoint(SocketChannelEndpoint):
             return False
         return super().replacement_delivery_ready()
 
+    supports_tool_activity = True
+
     def send_status(self, response_handle: Any, kind: str, payload: dict[str, Any]) -> None:
         """Project Pal turn hooks into the avatar's persistent activity state."""
 
+        if kind == "tool_activity":
+            # Optional UI traffic must never fail delivery of a tool or reply.
+            with contextlib.suppress(Exception):
+                session = self._require_session(response_handle)
+                if session.outbound.qsize() < 100:
+                    session.outbound.put_nowait({
+                        "type": "tool_activity", "payload": dict(payload),
+                        "request_id": str(response_handle.reply_target.get("request_id") or ""),
+                    })
+            return
         state = {
             "typing_start": "thinking",
             "working_stop": "standby",

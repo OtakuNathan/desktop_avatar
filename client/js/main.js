@@ -21,6 +21,7 @@
   const chatClearHistory = document.getElementById("chat-clear-history");
   const stateBadge = document.getElementById("state-badge");
   const avatarStage = document.getElementById("avatar-stage");
+  const toolWorkspace = window.createToolWorkspace(document.getElementById("tool-workspace"), avatarStage);
   const checklistPanel = document.getElementById("checklist-panel");
   const checklistProgress = document.getElementById("checklist-progress");
   const checklistItems = document.getElementById("checklist-items");
@@ -837,6 +838,8 @@
       } else {
         addBubble("user", frame.text || "");
       }
+    } else if (kind === "tool_activity") {
+      toolWorkspace.handle(frame.payload || {});
     } else if (kind === "avatar_state") {
       renderState(frame.state || "standby");
       if (frame.state === "standby") sealBubble();
