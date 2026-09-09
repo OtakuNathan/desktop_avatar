@@ -431,20 +431,20 @@ body {
 /* Pal skin: same layout and behavior, darker material treatment. */
 html[data-avatar-skin="pal"] {
   color-scheme: dark;
-  --bubble-avatar: rgba(15, 43, 63, 0.96);
-  --bubble-user: rgba(30, 49, 75, 0.96);
+  --bubble-avatar: rgba(29, 42, 57, 0.92);
+  --bubble-user: rgba(29, 88, 145, 0.94);
   --accent: #0aa8df;
   --text: #e9f8ff;
 }
 html[data-avatar-skin="pal"] body {
   background-color: #030712;
   background-image:
-    radial-gradient(circle at 82% 32%, rgba(0, 174, 239, 0.16), transparent 28%),
-    radial-gradient(circle at 18% 78%, rgba(34, 72, 118, 0.2), transparent 36%),
-    linear-gradient(145deg, #02050b 0%, #07111e 52%, #030812 100%);
+    linear-gradient(rgba(5, 12, 23, 0.20), rgba(5, 12, 23, 0.32)),
+    url("../assets/background/cozy-room.png");
 }
 html[data-avatar-skin="pal"] .chat-panel {
-  background: rgba(5, 13, 24, 0.92);
+  background: rgba(5, 13, 24, 0.30);
+  backdrop-filter: blur(3px);
   border: 1px solid rgba(64, 190, 238, 0.22);
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.58), 0 0 26px rgba(0, 171, 232, 0.08);
 }
@@ -452,24 +452,24 @@ html[data-avatar-skin="pal"] .chat-header {
   background: linear-gradient(90deg, rgba(3, 91, 132, 0.96), rgba(3, 137, 183, 0.92));
 }
 html[data-avatar-skin="pal"] .chat-messages {
-  background: rgba(3, 9, 18, 0.76);
+  background: transparent;
 }
 html[data-avatar-skin="pal"] .history-loading {
   background: rgba(12, 41, 61, 0.92);
   color: #a8def3;
 }
 html[data-avatar-skin="pal"] .bubble.avatar {
-  border: 1px solid rgba(38, 190, 235, 0.18);
+  border: 1px solid rgba(172, 198, 220, 0.30);
 }
 html[data-avatar-skin="pal"] .bubble.user {
-  border: 1px solid rgba(119, 159, 211, 0.16);
+  border: 1px solid rgba(134, 195, 255, 0.52);
 }
 html[data-avatar-skin="pal"] .bubble blockquote { color: #a8bed0; }
 html[data-avatar-skin="pal"] .bubble code { background: rgba(255, 255, 255, 0.09); }
 html[data-avatar-skin="pal"] .bubble a { color: #55cffa; }
 html[data-avatar-skin="pal"] .chat-input-row {
   border-top-color: rgba(91, 187, 225, 0.16);
-  background: rgba(5, 15, 27, 0.98);
+  background: rgba(5, 15, 27, 0.60);
 }
 html[data-avatar-skin="pal"] .chat-input {
   border-color: rgba(93, 163, 194, 0.28);

@@ -749,3 +749,25 @@ def test_tool_workspace_reconnect_restores_only_current_turn(tmp_path: Path) -> 
         assert not any(json.loads(raw)['type'] == 'tool_activity' for raw in ws.sent)
 
     asyncio.run(run())
+
+
+def test_terminal_reply_closes_tools_when_optional_end_is_missing(tmp_path: Path) -> None:
+    async def run() -> None:
+        server = _server(ChatHistoryStore(tmp_path / 'tools.sqlite3'))
+        client = _WebSocket()
+        server._clients.add(client)
+        await server._project_pal_reply({'type': 'tool_activity', 'request_id': 'chat_current',
+            'payload': {'action': 'begin', 'turn_id': 'current'}})
+        await server._project_pal_reply({'type': 'tool_activity', 'request_id': 'chat_current',
+            'payload': {'action': 'call', 'turn_id': 'current', 'call_id': 'one'}})
+        for request, reason in [('chat_previous', 'stop'), ('chat_current', 'tool_calls'),
+                                ('chat_current', 'compact_required')]:
+            await server._project_pal_reply({'type': 'llm_done', 'request_id': request, 'finish_reason': reason})
+            assert server._tool_activity.turn_id == 'current'
+        await server._project_pal_reply({'type': 'llm_done', 'request_id': 'chat_current', 'finish_reason': 'stop'})
+        assert server._tool_activity.frames() == []
+        assert json.loads(client.sent[-1])['payload']['action'] == 'end'
+        await server._project_pal_reply({'type': 'tool_activity', 'request_id': 'chat_current',
+            'payload': {'action': 'call', 'turn_id': 'current', 'call_id': 'late'}})
+        assert server._tool_activity.frames() == []
+    asyncio.run(run())

@@ -5,10 +5,11 @@ from collections import OrderedDict
 class ToolActivityProjection:
     def __init__(self):
         self.turn_id = ""
+        self.request_id = ""
         self.calls = OrderedDict()
         self.omitted = 0
 
-    def apply(self, payload):
+    def apply(self, payload, *, request_id=""):
         turn_id = str(payload.get("turn_id") or "")
         action = payload.get("action")
         if not turn_id:
@@ -17,11 +18,14 @@ class ToolActivityProjection:
             if turn_id != self.turn_id:
                 self.calls.clear()
                 self.omitted = 0
+                self.request_id = ""
             self.turn_id = turn_id
+            self.request_id = str(request_id or self.request_id)
         elif turn_id != self.turn_id:
             return None
         elif action == "end":
             self.turn_id = ""
+            self.request_id = ""
             self.calls.clear()
             return {"type": "tool_activity", "payload": {"action": "end", "turn_id": turn_id}}
         elif action == "call":
@@ -35,6 +39,12 @@ class ToolActivityProjection:
         else:
             return None
         return {"type": "tool_activity", "payload": {**payload, "omitted": self.omitted}}
+
+    def finish_request(self, request_id):
+        """A matching final reply also closes UI when its optional end was lost."""
+        if not request_id or request_id != self.request_id or not self.turn_id:
+            return None
+        return self.apply({"action": "end", "turn_id": self.turn_id})
 
     def frames(self):
         if not self.turn_id:

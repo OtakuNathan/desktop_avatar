@@ -1571,7 +1571,7 @@ class AvatarWebSocketServer:
         if reply.get("type") == "tool_activity":
             payload = reply.get("payload")
             if isinstance(payload, dict):
-                frame = self._tool_activity.apply(payload)
+                frame = self._tool_activity.apply(payload, request_id=reply.get("request_id", ""))
                 if frame is not None:
                     await self.broadcast_frame(frame)
             return
@@ -1669,6 +1669,9 @@ class AvatarWebSocketServer:
                     message_id=request_id,
                     delivery_id=browser_delivery_id,
                 )
+            activity_end = self._tool_activity.finish_request(request_id)
+            if activity_end is not None:
+                await self.broadcast_frame(activity_end)
             other_chat_replies = any(
                 active_request_id.startswith("chat_")
                 for active_request_id in self._started_replies

@@ -192,7 +192,7 @@ class DesktopAvatarEndpoint(SocketChannelEndpoint):
             # Optional UI traffic must never fail delivery of a tool or reply.
             with contextlib.suppress(Exception):
                 session = self._require_session(response_handle)
-                if session.outbound.qsize() < 100:
+                if payload.get("action") == "end" or session.outbound.qsize() < 100:
                     session.outbound.put_nowait({
                         "type": "tool_activity", "payload": dict(payload),
                         "request_id": str(response_handle.reply_target.get("request_id") or ""),

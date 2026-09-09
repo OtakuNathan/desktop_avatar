@@ -89,3 +89,19 @@ def test_real_channel_router_to_provider_and_sidecar():
         await server._project_pal_reply(queue.get_nowait())
         assert server._tool_activity.frames()==[]
     asyncio.run(run())
+
+
+def test_end_bypasses_optional_activity_limit():
+    endpoint = DesktopAvatarEndpoint(endpoint=EndpointConfig('desktop','desktop_avatar','desktop.sock'),socket_path=Path('desktop.sock'))
+    queue = asyncio.Queue(maxsize=256)
+    endpoint.sessions['s'] = SimpleNamespace(outbound=queue, closed=False)
+    for _ in range(100):
+        queue.put_nowait({'type': 'text_delta'})
+    handle = ResponseHandle(endpoint_id='desktop', reply_target={'session_id':'s','request_id':'r'})
+    endpoint.send_status(handle, 'tool_activity', {'action':'call','turn_id':'a'})
+    assert queue.qsize() == 100
+    endpoint.send_status(handle, 'tool_activity', {'action':'end','turn_id':'a'})
+    assert queue.qsize() == 101
+    for _ in range(100):
+        queue.get_nowait()
+    assert queue.get_nowait()['payload']['action'] == 'end'
