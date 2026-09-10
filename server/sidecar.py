@@ -67,11 +67,11 @@ INGRESS_RETRY_DELAYS: tuple[float, ...] = (0.25, 0.5)
 
 VALID_STATES = [
     "standby", "sleeping", "thinking", "working",
-    "happy", "sad", "angry", "shock", "wink", "curious",
+    "happy", "sad", "crying", "error", "angry", "shock", "wink", "curious",
     "awkward", "smirk", "cheeky",
     "excited", "shy", "proud", "confused", "love", "panic", "bored",
     "greeting", "celebrate",
-    "laugh", "clap", "agree", "complain", "dance",
+    "laugh", "clap", "agree", "complain",
     "snacking", "drinking", "stretching",
 ]
 
@@ -79,15 +79,15 @@ VALID_STATES = [
 PERSISTENT_STATES = ("thinking", "working")
 IDLE_STATES = frozenset({"standby", "sleeping"})
 EXPRESSIVE_STATES = frozenset({
-    "happy", "sad", "angry", "shock", "wink", "curious",
+    "happy", "sad", "crying", "error", "angry", "shock", "wink", "curious",
     "awkward", "smirk", "cheeky",
     "excited", "shy", "proud", "confused", "love", "panic", "bored",
     "greeting", "celebrate",
-    "laugh", "clap", "agree", "complain", "dance",
+    "laugh", "clap", "agree", "complain",
     "snacking", "drinking", "stretching",
 })
 STATE_ALIASES = {
-    "sleepy": "sleeping", "crying": "sad", "error": "shock",
+    "sleepy": "sleeping", "err": "error",
     "embarrassed": "awkward", "smug": "smirk", "playful": "cheeky",
     "surprised": "shock", "wave": "greeting",
     "snack": "snacking", "drink": "drinking", "stretch": "stretching",

@@ -809,3 +809,16 @@ def test_wakeup_recovers_without_browser_completion(monkeypatch) -> None:
     now[0] += sidecar_module.WAKEUP_FAILSAFE_SECONDS
     assert sm.tick() == 'working'
     assert not sm.on_external_action_finished('shock')
+
+
+def test_independent_emotions_preserve_identity_and_dance_is_removed():
+    queue = AvatarStateQueue()
+    machine = StateMachine(queue, idle_timeout=3600)
+    for name in ("error", "crying", "shy", "awkward", "bored", "celebrate", "agree"):
+        assert sidecar_module.normalize_state(name) == name
+        assert machine.on_external_state(name)
+        assert machine.current_state == name
+        assert machine.on_external_action_finished(name)
+        assert machine.current_state == "standby"
+    assert sidecar_module.normalize_state("err") == "error"
+    assert not machine.on_external_state("dance")

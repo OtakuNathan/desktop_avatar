@@ -70,11 +70,11 @@ DEFAULT_BIND_PORT = 8765
 DEFAULT_BIND_HOST = "0.0.0.0"
 DESKTOP_AVATAR_STATES = frozenset({
     "standby", "sleeping", "sleepy", "thinking", "working",
-    "happy", "sad", "angry", "crying", "curious", "shock", "wink", "error",
+    "happy", "sad", "angry", "crying", "curious", "shock", "wink", "error", "err",
     "awkward", "smirk", "cheeky",
     "excited", "shy", "proud", "confused", "love", "panic", "bored",
     "greeting", "celebrate", "embarrassed", "smug", "playful", "surprised", "wave",
-    "laugh", "clap", "agree", "complain", "dance",
+    "laugh", "clap", "agree", "complain",
     "snacking", "drinking", "stretching", "snack", "drink", "stretch",
 })
 

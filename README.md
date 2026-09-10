@@ -182,7 +182,7 @@ http://<家里Pal的IP>:8765/
 以及 `excited`、`shy`、`proud`、`confused`、`love`、`panic`、`bored`、
 `greeting`、`celebrate` 等有辨识度的动作语义，
 客户端将这些语义映射为呼吸、思考摇摆、工作点头、开心跳跃、震惊弹起等轻量动作；
-也兼容 OLED 的 `sleepy`/`crying`/`error` 别名，但不依赖 OLED sidecar。单击桌宠会随机触发
+保留 `sleepy` → `sleeping` 别名；`crying` 和 `error` 是独立表情，`err` 可映射为 `error`。这些状态不依赖 OLED sidecar。单击桌宠会随机触发
 一次好奇、眨眼或开心互动，随后回到服务端给出的状态。
 
 `standby` 时客户端会每隔一段随机时间轮播无聊、偷吃薯片、喝可乐、伸懒腰等本地 idle 动作。
@@ -220,3 +220,5 @@ http://<家里Pal的IP>:8765/
 ## 分发说明
 
 第三方浏览器依赖的许可证已经随包保留，详见 `THIRD_PARTY_NOTICES.md`。
+
+默认分层形象新增：工具失败 `error` 的叉眼张嘴、`crying` 眼泪、`shy` 红晕、`awkward` 偷吃被发现的心虚眼、`bored` 阴郁挠头、`celebrate` 烟花、`agree` OK 手势轻挥。`proud` 共用得意表情，`clap` 仍共用开心；`dance` 已从对外状态与工具选项移除，旧 GLB 内部动作名称保留以兼容模型。

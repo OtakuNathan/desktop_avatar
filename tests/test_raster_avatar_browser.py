@@ -45,6 +45,8 @@ def test_raster_channel_lifecycle_and_preview(tmp_path):
                 page.wait_for_timeout(1200)
                 page.screenshot(path=str(tmp_path / 'raster-thinking.png'))
                 state('confused')
+                assert page.locator('.question-eye').count() == 2
+                page.screenshot(path=str(tmp_path / 'raster-question.png'))
                 page.wait_for_timeout(250)
                 state('working')
                 page.wait_for_timeout(4300)
@@ -63,10 +65,40 @@ def test_raster_channel_lifecycle_and_preview(tmp_path):
                 page.wait_for_timeout(3400)
                 assert len(sockets) == 2
                 state('sleeping')
+                state('panic')
+                page.wait_for_function('Number(document.querySelector(".eye-overlay").dataset.headScale) > 1.16')
+                assert page.locator('.spiral-eye').count() == 2
+                assert float(page.locator('.eye-overlay').get_attribute('data-head-scale')) > 1.15
+                page.screenshot(path=str(tmp_path / 'raster-big-head.png'))
+                state('working')
+                assert float(page.locator('.eye-overlay').get_attribute('data-head-scale')) == 1
                 page.emulate_media(reduced_motion='reduce')
                 state('panic')
-                page.wait_for_timeout(1400)
+                assert float(page.locator('.eye-overlay').get_attribute('data-head-scale')) == 1.2
+                page.wait_for_timeout(2800)
                 assert {'type': 'avatar_action_finished', 'state': 'panic'} in sent
+                # Independent expressions survive the WebSocket/main/renderer pipeline.
+                page.emulate_media(reduced_motion='no-preference')
+                for name, selector in [('error', '.crash-eye'), ('shy', '.blush'),
+                                       ('awkward', '.cookie-eye'), ('crying', '.tear'),
+                                       ('bored', '.gloom'), ('celebrate', '.firework'), ('agree', '#ok-hand')]:
+                    state(name)
+                    page.wait_for_timeout(400)
+                    assert page.locator(selector).count() > 0
+                    if name == 'agree':
+                        page.wait_for_timeout(1400)
+                        assert page.locator('#ok-hand').get_attribute('opacity') == '1'
+                    page.screenshot(path=str(tmp_path / f'raster-{name}.png'))
+                    state('working')
+                for name in ('error', 'crying'):
+                    state(name)
+                    page.wait_for_function('document.querySelector(".eye-overlay").dataset.state === "working"')
+                    completion = {'type': 'avatar_action_finished', 'state': name}
+                    for _ in range(50):
+                        if completion in sent:
+                            break
+                        page.wait_for_timeout(100)
+                    assert completion in sent
                 page.evaluate('PalRasterAvatar.destroy()')
                 assert page.locator('#pal-raster-widget').count() == 0
                 assert not page.evaluate('PalRasterAvatar.motionReady()')

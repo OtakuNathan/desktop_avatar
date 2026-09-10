@@ -78,7 +78,7 @@ def test_pal_webgl_renderer_and_vendored_runtime_are_packaged() -> None:
 
 
 def test_new_pal_actions_are_supported_end_to_end() -> None:
-    states = {"laugh", "clap", "agree", "complain", "dance"}
+    states = {"laugh", "clap", "agree", "complain", "crying", "error"}
     sidecar = (ROOT / "server/sidecar.py").read_text(encoding="utf-8")
     runtime = (ROOT / "server/runtime.py").read_text(encoding="utf-8")
     emotion = (ROOT / "plugin/desktop_avatar_emotion_introspection.py").read_text(

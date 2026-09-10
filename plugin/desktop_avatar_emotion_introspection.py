@@ -43,7 +43,6 @@ class DesktopAvatarEmotionInput(StrictToolModel):
         "clap",
         "agree",
         "complain",
-        "dance",
         "snacking",
         "drinking",
         "stretching",
@@ -137,7 +136,7 @@ class DesktopAvatarEmotionProvider:
         guidance=ToolGuidance(
             purpose="Show one semantic emotion or activity animation on attached desktop avatars.",
             use_when="A brief expressive reaction naturally supports the conversation shown in the desktop avatar channel.",
-            do_not_use_when="The animation would be repetitive, unrelated, or presented as proof of an internal feeling or runtime fact. Routine thinking and working states are automatic.",
+            do_not_use_when="The animation would be repetitive, unrelated, or presented as proof of an internal feeling or runtime fact. Routine thinking and working states are automatic. Use error only for an actual tool failure; use shock for surprise.",
             failure_next_steps="Inspect the desktop avatar channel endpoint and retry only after its sidecar is healthy.",
         ),
         execution=DIRECT_EXTERNAL_WRITE,
@@ -146,7 +145,7 @@ class DesktopAvatarEmotionProvider:
             {"emotion": "awkward", "duration": 1.4},
             {"emotion": "smirk", "duration": 1.2},
             {"emotion": "cheeky", "duration": 1.5},
-            {"emotion": "dance", "duration": 2.0},
+            {"emotion": "celebrate", "duration": 2.0},
         ),
         metadata={"omit_family_in_canonical": True},
     )

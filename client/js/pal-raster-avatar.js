@@ -3,14 +3,13 @@ import { createPalAnimation } from './pal-raster-animation.js';
 
 // Keep wire state identity even when an expression shares another state's art.
 const aliases = {
-  sleepy: 'sleeping', crying: 'sad', error: 'shock',
-  laugh: 'happy', celebrate: 'happy', clap: 'happy', dance: 'happy',
-  excited: 'happy', proud: 'happy', agree: 'happy',
-  panic: 'shock', awkward: 'sad', shy: 'love', smirk: 'cheeky',
-  bored: 'sad', complain: 'angry', drinking: 'snacking', stretching: 'greeting',
+  sleepy: 'sleeping', err: 'error', laugh: 'happy', clap: 'happy',
+  excited: 'happy', proud: 'cheeky', smirk: 'cheeky',
+  complain: 'angry', drinking: 'snacking', stretching: 'greeting',
 };
 const states = new Set(['standby', 'thinking', 'working', 'sleeping', 'greeting',
-  'curious', 'love', 'wink', 'shock', 'happy', 'cheeky', 'snacking', 'sad', 'confused', 'angry']);
+  'curious', 'love', 'wink', 'shock', 'happy', 'cheeky', 'snacking', 'sad',
+  'confused', 'panic', 'angry', 'error', 'shy', 'awkward', 'crying', 'bored', 'celebrate', 'agree']);
 let active = null;
 export async function initPalRasterAvatar({ container, onActionFinished }) {
   active?.destroy();
