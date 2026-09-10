@@ -824,7 +824,7 @@ html[data-avatar-skin="pal"] #pal-webgl-widget[class*="avatar-state-"] {
 html[data-avatar-skin="pal"] .tool-workspace { color: #d4e7ee; background: #0b1a27ed; border-color: #244456; }
 html[data-avatar-skin="pal"] .tool-call-status.succeeded, html[data-avatar-skin="pal"] .diff-add { color: #77dba7; }
 html[data-avatar-skin="pal"] .tool-call-status.failed, html[data-avatar-skin="pal"] .diff-remove { color: #ffa0a0; }
-#avatar-stage.has-tool-workspace :is(#pal-svg-widget, #pal-webgl-widget) { max-height: 44%; }
+#avatar-stage.has-tool-workspace :is(#pal-raster-widget, #pal-svg-widget, #pal-webgl-widget) { max-height: 44%; }
 
 /* Image and light share one cover-scaled plane, so resizing never moves the
    animated screen away from its painted bezel. Source: 1672 x 941 pixels. */
@@ -864,3 +864,12 @@ html[data-avatar-skin="pal"] .tool-call-status.failed, html[data-avatar-skin="pa
 @media (prefers-reduced-motion: reduce) {
   .room-screen-glow, .room-screen-reflection { animation: none; opacity: .12; }
 }
+
+/* Shared raster/SVG rig, cropped by the viewport rather than the source image. */
+#pal-raster-widget{position:absolute;left:50%;bottom:0;translate:-50% 0;width:min(94%,420px);aspect-ratio:591.333/650;max-height:70%;z-index:20;pointer-events:none}
+#pal-raster-canvas{position:relative;width:100%;height:100%;overflow:hidden;pointer-events:auto;cursor:pointer}
+#pal-raster-widget .robot{position:absolute;inset:0 0 auto;aspect-ratio:591.333/887;transform-origin:50% 70%;animation:pal-raster-breathe 4.8s ease-in-out infinite}
+#pal-raster-widget :is(.base,.arm-overlay,.eye-overlay){position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+#pal-raster-widget.paused .robot{animation-play-state:paused}
+@keyframes pal-raster-breathe{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.004)}}
+@media(prefers-reduced-motion:reduce){#pal-raster-widget .robot{animation:none}}

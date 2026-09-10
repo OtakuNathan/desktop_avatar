@@ -1,6 +1,6 @@
 # 妹妹的桌面小家（desktop_avatar）
 
-桌面上住着一个会动、会睡、会聊天的 Pal 机器人，支持 WebGL 全身模型和轻量 SVG 形象。双击角色弹出聊天框，消息通过 WebSocket 进 Pal，回复流式显示，状态会驱动表情和动作。
+桌面上住着一个会动、会睡、会聊天的 Pal 机器人，默认使用原稿风格的位图 + SVG 分层动画，也保留 WebGL 全身模型和旧 SVG 形象。双击角色弹出聊天框，消息通过 WebSocket 进 Pal，回复流式显示，状态会驱动表情和动作。
 
 ```
 妈妈的电脑                              Pal 主机
@@ -55,12 +55,15 @@ desktop_avatar/
         └── pal/               # Pal GLB 模型与美术参考
 ```
 
-浏览器默认加载 Pal 3D 深色主题，`/?skin=pal` 和 `/?skin=pal3d` 也选择同一形象；
-该皮肤用离线 Three.js/WebGL 渲染全身机器人，兼容原有九动作模型和新版具名动作模型，并在新回复开始时播放一次
-轻量合成 beep。它不依赖 CDN、语音或外部模型服务。beep 使用 Web Audio，不包含音频素材，
-首次用户交互前遵守浏览器自动播放限制。
+浏览器默认加载原稿风格的 Pal（`/?skin=pal`）：位图保留白壳质感，SVG 驱动表情、粒子和肩肘腕动作。
+默认显示上半身，原始素材仍保留全身；三张运行时纹理约 1.28 MB，无需加载 GLB / Three.js。
+小样与正式桌宠共用动画代码，状态仍由 sidecar 驱动，临时表情完成后回报原始状态名称。
+系统开启减少动态效果时显示静态表情，完成回报仍正常发出；隐藏页面暂停动画。
 
-也可以通过 `/?skin=pal2d` 使用无需 GLB 的轻量 SVG 机器人；`/?skin=pal3d` 是 3D 皮肤的别名。
+`/?skin=pal3d` 保留原来的离线 Three.js/WebGL 模型，`/?skin=pal2d` 保留旧的轻量 SVG 机器人。
+可选 ST7789 镜像仍需使用上述旧 renderer；新分层 renderer 尚不支持该镜像的单 canvas 捕获。
+所有形象沿用聊天、工具工作区及消息 beep；首次用户交互前遵守浏览器自动播放限制。
+
 动作映射、thinking/sleeping 定格和表情说明见 [形象文档](client/assets/model/pal/README.md)。
 
 Pal 的 GLB 不进入 provider 仓库或发布包。安装器校验动作后把模型写入 runtime-local、内容寻址的
@@ -183,8 +186,15 @@ http://<家里Pal的IP>:8765/
 一次好奇、眨眼或开心互动，随后回到服务端给出的状态。
 
 `standby` 时客户端会每隔一段随机时间轮播无聊、偷吃薯片、喝可乐、伸懒腰等本地 idle 动作。
-这些动作会调用模型自带 motion（默认静音）；turn 开始、流式回复、工具执行或显式 `show_emotion`
+默认分层形象轮播好奇、零食、疑惑动作，3D 形象调用模型自带 motion（默认静音）；turn 开始、流式回复、工具执行或显式 `show_emotion`
 状态到达时会立即停止 idle motion，由新状态抢占。
+
+待机达到空闲阈值后进入 `sleeping`，睡满一小时自动回到 `standby`，继续空闲时可再次入睡。
+睡着时收到桌宠聊天消息，先播放一次 `shock`，结束后恢复期间更新的最新基础状态；
+连续消息不会打断这次惊醒。客户端没有回报动作结束时，三秒后自动恢复，避免一直卡在惊醒状态。
+
+原稿风格的独立 SVG 表情小样位于 [`client/previews/pal-blink/`](client/previews/pal-blink/README.md)，
+服务启动后访问 `/previews/pal-blink/index.html`。它不连接 Pal，使用与正式形象相同的美术和动画代码，可独立调试。
 
 ## 联调测试（开发机 localhost）
 
@@ -200,8 +210,8 @@ http://<家里Pal的IP>:8765/
   投影交错输出，因此 active turn 中仍可发送普通插话、`/status` 或 `/interrupt`
 - **展示投影**：浏览器只是 renderer；sidecar 的 SQLite 保存用户消息、流式未完成气泡和 tagged
   展示快照，浏览器或 provider 重连后可直接重建当前画面
-- **状态机**：sidecar 自治（消息流推断：thinking → working → standby；1h 无消息 → sleeping），
-  未来可订阅 turn 事件推送更精细状态
+- **状态机**：sidecar 自治（消息流推断：thinking → working → standby；空闲入睡、定时醒来；
+  睡眠中收到消息先惊醒，再恢复最新基础状态）
 - **通道复用**：WS 帧 type 字段区分消息/状态/保活（老爹钦定）
 - **独立历史**：每个 endpoint 在自己的 data root 保存 `chat_history.sqlite3`；普通对话从首个流式片段起按轮更新，
   slash command 面板和按钮回执不写入聊天记录

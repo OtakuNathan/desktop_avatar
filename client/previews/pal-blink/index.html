@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pal · 表情实验室</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#020d23;color:#dceeff;font:15px/1.6 system-ui,sans-serif;min-height:100vh;display:grid;grid-template-columns:minmax(280px,590px) minmax(240px,360px);align-items:center;justify-content:center;gap:24px;padding:20px}.stage{width:100%;aspect-ratio:591.333/887;position:relative;overflow:hidden}.robot{position:absolute;inset:0;transform-origin:50% 95%;animation:breathe 4.8s ease-in-out infinite}.base{position:absolute;inset:0;background:url(body-plate.png?v=9) left center/100% 100% no-repeat}.eye-overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.pupil{transition:transform 140ms ease-out}.paused .pupil{transition:none}.paused .robot{animation-play-state:paused}@keyframes breathe{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.004)}}h1{font-size:25px;letter-spacing:.03em;margin:0 0 10px}p{color:#9eb5cd}small{display:block;color:#8199b3;margin-top:20px}.controls{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px}button{background:#113453;color:#e4f5ff;border:1px solid #2c6386;border-radius:10px;padding:10px 16px;font:inherit;cursor:pointer}button[aria-pressed="true"]{background:#246b84;border-color:#8af6ff}button:hover{background:#195174}button:focus-visible{outline:2px solid #66dbff;outline-offset:3px}@media(max-width:650px){body{grid-template-columns:minmax(0,440px);gap:0;padding:12px}.stage{max-height:70vh;width:auto;margin:auto;aspect-ratio:591.333/887}section{text-align:center}.controls{justify-content:center}}@media(prefers-reduced-motion:reduce){.robot{animation:none}}
+/* Crop the presentation, keeping the full-resolution full-body asset intact. */
+.stage{aspect-ratio:591.333/650}.robot{inset:0 0 auto;height:auto;aspect-ratio:591.333/887}
+body.full-body .stage{aspect-ratio:591.333/887}
+@media(max-width:650px){.stage{width:100%;max-height:none;aspect-ratio:591.333/650}body.full-body .stage{aspect-ratio:591.333/887}}
+.arm-overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+</style>
+<div class="stage" role="img" aria-label="白色机器人 Pal 表情预览"><div class="robot"></div></div>
+<section><h1>Pal，表情实验室。</h1><p>白壳小机器人，也有一点赛博食欲。</p><p>自然垂手，SVG 连续眨眼。好奇时眼里冒星星，喜欢就亮爱心；饿了偷偷吞一枚能量芯片。</p><div id="expressions" class="controls"></div><p id="state-label" aria-live="polite"></p><div class="controls"><button id="message">模拟收到消息</button><button id="framing" aria-pressed="false">显示全身</button><button id="blink">眨一下</button><button id="pause" aria-pressed="false">暂停</button><button id="slow" aria-pressed="false">慢动作</button></div><small>独立视觉预览，与正式桌宠共用动画。沿用桌宠状态名称；表情结束回到基础状态。睡着收到消息先惊醒，再思考。可预览打招呼挥手，以及思考、疑惑时挠头。</small></section>
+<script type="module" src="eyes.js?v=11"></script></html>

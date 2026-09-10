@@ -6,7 +6,7 @@ const requestedSkin = String(avatarPageUrl.searchParams.get("skin") || "pal").to
 const AVATAR_SKINS = Object.freeze({
   pal: Object.freeze({
     skin: "pal",
-    renderer: "webgl",
+    renderer: "raster",
     title: "Pal Desktop Companion",
     displayName: "Pal",
     documentLanguage: "en",
@@ -14,7 +14,7 @@ const AVATAR_SKINS = Object.freeze({
     messageBeepEnabled: true,
     messageBeepFrequencyHz: 880,
     messageBeepVolume: 0.045,
-    display: Object.freeze({ width: 260, height: 520, hOffset: 0, vOffset: -6 }),
+    display: Object.freeze({ width: 350, height: 385, hOffset: 0, vOffset: -6 }),
     ui: Object.freeze({
       chatAriaLabel: "Chat with Pal",
       avatarAriaLabel: "Pal desktop companion",
@@ -32,7 +32,7 @@ const AVATAR_SKINS = Object.freeze({
 
 const selectedSkin = requestedSkin === "pal2d"
   ? Object.freeze({ ...AVATAR_SKINS.pal, renderer: "svg" })
-  : requestedSkin === "pal3d" ? AVATAR_SKINS.pal
+  : requestedSkin === "pal3d" ? Object.freeze({ ...AVATAR_SKINS.pal, renderer: "webgl", display: { width: 260, height: 520 } })
   : AVATAR_SKINS[requestedSkin] || AVATAR_SKINS.pal;
 document.documentElement.dataset.avatarSkin = selectedSkin.skin;
 document.documentElement.lang = selectedSkin.documentLanguage;

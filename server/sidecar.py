@@ -60,6 +60,7 @@ SLEEPING_WAKE_TIMEOUT: float = 3600.0
 THINKING_PROBE_SECONDS: float = 0.1
 EXPRESSIVE_STATE_SECONDS: float = 1.1
 EXPRESSIVE_STATE_FAILSAFE_SECONDS: float = 30.0
+WAKEUP_FAILSAFE_SECONDS: float = 3.0
 HISTORY_PAGE_ROUNDS: int = 10
 INGRESS_DELIVERY_ATTEMPTS: int = 3
 INGRESS_RETRY_DELAYS: tuple[float, ...] = (0.25, 0.5)
@@ -330,6 +331,7 @@ class StateMachine:
         self._display_state = "standby"
         self._override_state: str | None = None
         self._override_until = 0.0
+        self._waking = False
         self._last_activity = time.monotonic()
 
     @property
@@ -348,11 +350,19 @@ class StateMachine:
             self._queue.push(normalized, preempt=normalized in IDLE_STATES)
 
     def on_client_message(self) -> None:
-        """Mother sent a message: wake up and think."""
+        """Wake with a brief shock before showing the latest activity state."""
+        was_sleeping = self._base_state == "sleeping"
+        if self._waking:
+            self._set_base_state("thinking")
+            return
         self._override_state = None
         self._override_until = 0.0
         self._queue.clear()
         self._set_base_state("thinking")
+        if was_sleeping:
+            self.on_external_state("shock")
+            self._waking = True
+            self._override_until = time.monotonic() + WAKEUP_FAILSAFE_SECONDS
 
     def on_reply_delta(self) -> None:
         """Pal is streaming a reply: working."""
@@ -368,6 +378,7 @@ class StateMachine:
         if normalized not in VALID_STATES:
             return False
         if normalized in EXPRESSIVE_STATES:
+            self._waking = False
             try:
                 requested_duration = max(0.0, float(duration))
             except (TypeError, ValueError):
@@ -394,6 +405,7 @@ class StateMachine:
             return False
         self._override_state = None
         self._override_until = 0.0
+        self._waking = False
         self._display_state = self._base_state
         self._queue.push(self._base_state, preempt=True)
         return True
@@ -406,12 +418,16 @@ class StateMachine:
                 return None
             self._override_state = None
             self._override_until = 0.0
+            self._waking = False
             self._display_state = self._base_state
             self._queue.push(self._base_state, preempt=True)
             return self._base_state
         if self._base_state == "standby" and now - self._last_activity >= self._idle_timeout:
             self._set_base_state("sleeping")
             return "sleeping"
+        if self._base_state == "sleeping" and now - self._last_activity >= SLEEPING_WAKE_TIMEOUT:
+            self._set_base_state("standby")
+            return "standby"
         return None
 
 

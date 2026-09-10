@@ -10,7 +10,7 @@
   const syncRoomMotion = () => document.body.classList.toggle("room-animation-paused", document.hidden);
   document.addEventListener("visibilitychange", syncRoomMotion);
   syncRoomMotion();
-  const palController = () => CFG.renderer === "svg" ? window.PalSVGAvatar : window.PalWebGLAvatar;
+  const palController = () => CFG.renderer === "raster" ? window.PalRasterAvatar : CFG.renderer === "svg" ? window.PalSVGAvatar : window.PalWebGLAvatar;
   const WS_URL = CFG.wsUrl || "ws://localhost:8765";
 
   // ---------- DOM ----------
@@ -81,7 +81,11 @@
     "avatar-state-drinking",
     "avatar-state-stretching",
   ];
-  const IDLE_ACTIONS = [
+  const IDLE_ACTIONS = CFG.renderer === "raster" ? [
+    { state: "curious", duration: 3000 },
+    { state: "snacking", duration: 4200 },
+    { state: "confused", duration: 4600 },
+  ] : [
     { state: "bored", duration: 4200 },
     { state: "snacking", duration: 5200 },
     { state: "drinking", duration: 4600 },
@@ -117,9 +121,9 @@
     bootstrapLoading.textContent = "Loading Pal…";
     avatarStage.appendChild(bootstrapLoading);
     try {
-      const module = await (CFG.renderer === "svg" ? import("./pal-svg-avatar.js") : import("./pal-webgl-avatar.js"));
+      const module = await (CFG.renderer === "raster" ? import("./pal-raster-avatar.js") : CFG.renderer === "svg" ? import("./pal-svg-avatar.js") : import("./pal-webgl-avatar.js"));
       bootstrapLoading.remove();
-      await (CFG.renderer === "svg" ? module.initPalSVGAvatar : module.initPalWebGLAvatar)({
+      await (CFG.renderer === "raster" ? module.initPalRasterAvatar : CFG.renderer === "svg" ? module.initPalSVGAvatar : module.initPalWebGLAvatar)({
         container: avatarStage,
         modelPath: CFG.renderer === "webgl" ? await resolvePalModelPath() : undefined,
         onActionFinished: (state) => {
@@ -130,14 +134,15 @@
       bindAvatarWhenReady();
     } catch (error) {
       console.error("Pal renderer failed to initialize", error);
-      showHint(CFG.renderer === "svg" ? "Pal failed to load. Refresh the page to retry." : "Pal's local skin failed to load. Reinstall the model cache, then refresh the page.", true);
+      showHint(CFG.renderer !== "webgl" ? "Pal failed to load. Refresh the page to retry." : "Pal's local skin failed to load. Reinstall the model cache, then refresh the page.", true);
     } finally {
       bootstrapLoading.remove();
     }
   }
 
   function avatarElement() {
-    return document.getElementById("pal-svg-widget")
+    return document.getElementById("pal-raster-widget")
+      || document.getElementById("pal-svg-widget")
       || document.getElementById("pal-webgl-widget")
       || document.getElementById("pal-webgl-canvas")
       || document.querySelector("#avatar-stage canvas, body > canvas");
@@ -146,7 +151,8 @@
   function bindAvatarWhenReady(attempt) {
     const tries = Number(attempt || 0);
     const avatar = avatarElement();
-    const canvas = document.getElementById("pal-svg-canvas")
+    const canvas = document.getElementById("pal-raster-canvas")
+      || document.getElementById("pal-svg-canvas")
       || document.getElementById("pal-webgl-canvas")
       || document.querySelector("#avatar-stage canvas, body > canvas");
     if (!avatar || !canvas) {

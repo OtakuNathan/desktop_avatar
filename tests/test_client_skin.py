@@ -35,20 +35,20 @@ process.stdout.write(JSON.stringify({
     return json.loads(result.stdout)
 
 
-def test_default_skin_selects_pal_webgl() -> None:
+def test_default_skin_selects_pal_raster() -> None:
     loaded = _load_config("http://127.0.0.1:8765/")
     config = loaded["config"]
     assert loaded["dataset"] == {"avatarSkin": "pal"}
-    assert config["renderer"] == "webgl"
+    assert config["renderer"] == "raster"
     assert config["messageBeepEnabled"] is True
 
 
-def test_pal_skin_selects_dark_full_body_slot_and_notification_beep() -> None:
+def test_pal_skin_selects_raster_and_notification_beep() -> None:
     loaded = _load_config("http://127.0.0.1:8765/?skin=pal")
     config = loaded["config"]
     assert loaded["dataset"] == {"avatarSkin": "pal"}
     assert loaded["lang"] == "en"
-    assert config["renderer"] == "webgl"
+    assert config["renderer"] == "raster"
     assert config["skinManifestPath"] == "./desktop-avatar-skin-manifest.json"
     assert config["messageBeepEnabled"] is True
 

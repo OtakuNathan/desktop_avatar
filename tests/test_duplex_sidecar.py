@@ -771,3 +771,41 @@ def test_terminal_reply_closes_tools_when_optional_end_is_missing(tmp_path: Path
             'payload': {'action': 'call', 'turn_id': 'current', 'call_id': 'late'}})
         assert server._tool_activity.frames() == []
     asyncio.run(run())
+
+
+def test_idle_sleep_auto_wake_and_message_startle(monkeypatch) -> None:
+    now = [100.0]
+    monkeypatch.setattr(sidecar_module.time, 'monotonic', lambda: now[0])
+    queue = AvatarStateQueue()
+    sm = StateMachine(queue, idle_timeout=10)
+    now[0] += 10
+    assert sm.tick() == 'sleeping'
+    now[0] += sidecar_module.SLEEPING_WAKE_TIMEOUT
+    assert sm.tick() == 'standby'
+    now[0] += 10
+    assert sm.tick() == 'sleeping'
+    sm.on_client_message()
+    assert sm.current_state == 'shock'
+    assert queue.pop()['state'] == 'shock'
+    sm.on_reply_delta()
+    sm.on_client_message()  # A second message must not erase the wake-up beat.
+    assert sm.current_state == 'shock'
+    sm.on_reply_done()
+    assert sm.on_external_action_finished('shock')
+    assert sm.current_state == 'standby'
+    assert queue.pop()['state'] == 'standby'
+    sm.on_client_message()
+    assert sm.current_state == 'thinking'  # Awake messages do not startle.
+
+
+def test_wakeup_recovers_without_browser_completion(monkeypatch) -> None:
+    now = [100.0]
+    monkeypatch.setattr(sidecar_module.time, 'monotonic', lambda: now[0])
+    sm = StateMachine(AvatarStateQueue(), idle_timeout=10)
+    now[0] += 10
+    sm.tick()
+    sm.on_client_message()
+    sm.on_reply_delta()
+    now[0] += sidecar_module.WAKEUP_FAILSAFE_SECONDS
+    assert sm.tick() == 'working'
+    assert not sm.on_external_action_finished('shock')
