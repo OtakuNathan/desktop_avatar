@@ -24,7 +24,26 @@
           span.textContent = line + '\n';
           pre.appendChild(span);
         }
-      } else pre.textContent = String(value);
+      } else {
+        let parsed;
+        try { parsed = JSON.parse(value); } catch (_) { /* Truncated preview. */ }
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const parameters = document.createElement('dl');
+          parameters.className = 'tool-parameters';
+          for (const [key, argument] of Object.entries(parsed)) {
+            const name = document.createElement('dt');
+            name.textContent = key;
+            const entry = document.createElement('dd');
+            const text = document.createElement('pre');
+            text.textContent = typeof argument === 'string' ? argument : JSON.stringify(argument, null, 2);
+            entry.append(text); parameters.append(name, entry);
+          }
+          if (!parameters.children.length) parameters.textContent = 'No parameters';
+          block.append(summary, parameters);
+          return block;
+        }
+        pre.textContent = parsed === undefined ? String(value) : JSON.stringify(parsed, null, 2);
+      }
       block.append(summary, pre);
       return block;
     }

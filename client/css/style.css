@@ -873,3 +873,8 @@ html[data-avatar-skin="pal"] .tool-call-status.failed, html[data-avatar-skin="pa
 #pal-raster-widget.paused .robot{animation-play-state:paused}
 @keyframes pal-raster-breathe{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.004)}}
 @media(prefers-reduced-motion:reduce){#pal-raster-widget .robot{animation:none}}
+
+.tool-parameters { margin: 6px 0; }
+.tool-parameters dt { font-weight: 600; opacity: .8; overflow-wrap: anywhere; }
+.tool-parameters dd { margin: 0 0 8px; }
+.tool-parameters pre { white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -35,6 +35,7 @@
   let legacySealTimer = null;
   let composing = false;
   let currentAvatarState = "standby";
+  let residentSleeping = false;
   let avatarReadyTimer = null;
   let avatarTapTimer = null;
   let historyCursor = null;
@@ -190,6 +191,7 @@
   }
 
   function playTapInteraction(event) {
+    if (residentSleeping) return;
     const choices = ["curious", "wink", "happy"];
     const state = choices[Math.floor(Math.random() * choices.length)];
     cancelIdleAction();
@@ -635,7 +637,7 @@
   }
 
   function renderState(state) {
-    currentAvatarState = normalizeState(state);
+    currentAvatarState = residentSleeping ? "sleeping" : normalizeState(state);
     cancelIdleAction();
     stateBadge.textContent = STATE_LABEL[currentAvatarState];
     stateBadge.className = "state-badge " + currentAvatarState;
@@ -770,6 +772,12 @@
       }
     } else if (kind === "tool_activity") {
       toolWorkspace.handle(frame.payload || {});
+    } else if (kind === "runtime_state") {
+      if (typeof frame.payload?.sleeping === "boolean") {
+        const wasSleeping = residentSleeping;
+        residentSleeping = frame.payload.sleeping;
+        if (residentSleeping || wasSleeping) renderState(residentSleeping ? "sleeping" : "standby");
+      }
     } else if (kind === "avatar_state") {
       renderState(frame.state || "standby");
       if (frame.state === "standby") sealBubble();

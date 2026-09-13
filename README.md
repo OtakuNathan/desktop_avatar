@@ -91,7 +91,9 @@ python install.py --runtime-root /path/to/runtime --component emotion
 ```
 
 更新已有安装时显式加 `--force`。安装器只复制文件，不会操作正在运行的 Pal；随后通过 Pal 的
-`channel_provider_rescan` / endpoint attach 与 `plugin_rescan` / `plugin_attach` 生命周期能力热加载。
+生命周期能力热加载：新 provider 使用 `channel_provider_rescan` / endpoint attach；已有 provider
+代码更新使用 `channel_reload_provider(provider_id="desktop_avatar")`。插件使用
+`plugin_rescan` / `plugin_attach`。仅重启 endpoint 不会重载 provider 代码。
 安装采用逐文件原子替换，保留安装目录中不属于发布包的文件；成功后会生成
 `.desktop-avatar-install.json`，记录版本、安装文件和 SHA-256，并立即核验安装结果。
 已知由旧版本安装、但已经退役的入口文件会在 `--force` 更新时一并清理。
@@ -128,7 +130,7 @@ mkdir -p <runtime-root>/plugins/community/desktop_avatar_emotion
 cp plugin/{plugin.toml,runtime.py,desktop_avatar_emotion_introspection.py} \
   <runtime-root>/plugins/community/desktop_avatar_emotion/
 
-# 2. 重启 Pal，或分别热加载 channel provider 与 plugin
+# 2. 分别热加载 channel provider 与 plugin（已有 provider 更新用 channel_reload_provider）
 # 3. 注册 endpoint（Pal 内执行）：
 #    desktop_avatar / channel_kind=desktop_avatar / binding_key=<任意唯一键>
 #    binding_metadata: bind_host=0.0.0.0, bind_port=8765
@@ -192,6 +194,13 @@ http://<家里Pal的IP>:8765/
 待机达到空闲阈值后进入 `sleeping`，睡满一小时自动回到 `standby`，继续空闲时可再次入睡。
 睡着时收到桌宠聊天消息，先播放一次 `shock`，结束后恢复期间更新的最新基础状态；
 连续消息不会打断这次惊醒。客户端没有回报动作结束时，三秒后自动恢复，避免一直卡在惊醒状态。
+
+Pal Dreaming 使用独立的 `runtime_state` 帧广播真实睡眠状态。入睡通知送达后，
+所有已连接桌宠进入 `sleeping`；期间消息、单击互动、表情和空闲超时均不能唤醒它。
+Pal 恢复服务后才解除睡眠；整理失败但原库恢复时也会解除，发布后无法挂载新版时继续睡眠。
+provider/浏览器重连会收到最新快照，状态不写入聊天历史。普通空闲睡眠仍沿用上述惊醒行为。
+此接线需要包含广播接口的 Pal Core 完整重启，以及更新后的 desktop_avatar channel 和浏览器资源；
+只刷新浏览器或只重载 provider 不会更新 resident Core。
 
 原稿风格的独立 SVG 表情小样位于 [`client/previews/pal-blink/`](client/previews/pal-blink/README.md)，
 服务启动后访问 `/previews/pal-blink/index.html`。它不连接 Pal，使用与正式形象相同的美术和动画代码，可独立调试。

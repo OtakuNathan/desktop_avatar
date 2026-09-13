@@ -333,12 +333,30 @@ class StateMachine:
         self._override_until = 0.0
         self._waking = False
         self._last_activity = time.monotonic()
+        self._resident_sleeping = False
+
+    def on_runtime_state(self, payload: dict[str, Any]) -> None:
+        sleeping = payload.get("sleeping")
+        if not isinstance(sleeping, bool) or sleeping == self._resident_sleeping:
+            return
+        self._resident_sleeping = sleeping
+        self._override_state = None
+        self._override_until = 0.0
+        self._waking = False
+        self._queue.clear()
+        self._set_base_state("sleeping" if sleeping else "standby")
 
     @property
     def current_state(self) -> str:
         return self._display_state
 
+    @property
+    def resident_sleeping(self) -> bool:
+        return self._resident_sleeping
+
     def _set_base_state(self, state: str) -> None:
+        if self._resident_sleeping:
+            state = "sleeping"
         normalized = normalize_state(state)
         if normalized not in (*PERSISTENT_STATES, *IDLE_STATES):
             return
@@ -351,6 +369,8 @@ class StateMachine:
 
     def on_client_message(self) -> None:
         """Wake with a brief shock before showing the latest activity state."""
+        if self._resident_sleeping:
+            return
         was_sleeping = self._base_state == "sleeping"
         if self._waking:
             self._set_base_state("thinking")
@@ -374,6 +394,8 @@ class StateMachine:
 
     def on_external_state(self, state: str, *, duration: float = EXPRESSIVE_STATE_SECONDS) -> bool:
         """Queue an expressive state until the browser reports clip completion."""
+        if self._resident_sleeping:
+            return False
         normalized = normalize_state(state)
         if normalized not in VALID_STATES:
             return False
@@ -412,6 +434,8 @@ class StateMachine:
 
     def tick(self) -> str | None:
         """Return next state to broadcast, or None when nothing changed."""
+        if self._resident_sleeping:
+            return None
         now = time.monotonic()
         if self._override_state is not None:
             if now < self._override_until:
@@ -1188,7 +1212,7 @@ class AvatarWebSocketServer:
     @staticmethod
     def _is_transient_reply(reply: dict[str, Any]) -> bool:
         reply_type = str(reply.get("type") or "")
-        if reply_type in {"text_delta", "tool_call", "op_tool_call", "tool_activity"}:
+        if reply_type in {"text_delta", "tool_call", "op_tool_call", "tool_activity", "runtime_state"}:
             return True
         return (
             reply_type in {"llm_done", "done"}
@@ -1309,6 +1333,7 @@ class AvatarWebSocketServer:
         self._connected += 1
         try:
             await ws.send(json.dumps({"type": "avatar_state", "state": self._sm.current_state}))
+            await ws.send(json.dumps({"type": "runtime_state", "payload": {"sleeping": self._sm.resident_sleeping}}))
             await self.send_history_page(ws, mode="replace")
             for activity in self._tool_activity.frames():
                 await ws.send(json.dumps(activity, ensure_ascii=False))
@@ -1584,6 +1609,12 @@ class AvatarWebSocketServer:
 
     async def _project_pal_reply(self, reply: dict[str, Any]) -> None:
         """Project one Pal frame without assuming responses are contiguous."""
+        if reply.get("type") == "runtime_state":
+            payload = reply.get("payload")
+            if isinstance(payload, dict):
+                self._sm.on_runtime_state(payload)
+                await self.broadcast_frame({"type": "runtime_state", "payload": {"sleeping": self._sm.resident_sleeping}})
+            return
         if reply.get("type") == "tool_activity":
             payload = reply.get("payload")
             if isinstance(payload, dict):

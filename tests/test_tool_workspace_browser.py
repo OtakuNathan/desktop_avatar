@@ -22,12 +22,18 @@ def test_work_area_updates_safe_text_scroll_and_turn_lifetime():
             record={'action':'call','turn_id':'a','call_id':'one','tool':'write_file','arguments':'{"content":"<img src=x onerror=alert(1)>"}','status':'running'}
             send(record)
             page.locator('summary').click()
+            assert page.locator('.tool-parameters dt').inner_text() == 'content'
+            assert page.locator('.tool-parameters dd').inner_text() == '<img src=x onerror=alert(1)>'
             send({**record,'status':'succeeded','patch':'--- file\n+++ file\n-old\n+new\n'})
             assert page.locator('article').count()==1
             assert page.locator('details').first.get_attribute('open') is not None
             assert page.locator('img').count()==0
             assert page.locator('.diff-add').count()==2
             assert page.locator('.diff-remove').count()==2
+            send({**record, 'call_id':'params', 'arguments':'{"cmd":"echo first\\necho second","options":{"limit":2},"empty":null}'})
+            assert page.locator('article').last.locator('pre').all_text_contents() == ['echo first\necho second', '{\n  "limit": 2\n}', 'null']
+            send({**record, 'call_id':'truncated', 'arguments':'{"cmd":"partial', 'arguments_truncated':True})
+            assert page.locator('article').last.locator('pre').text_content() == '{"cmd":"partial'
             for i in range(15): send({**record,'call_id':str(i)})
             page.locator('.tool-workspace-list').evaluate('(e)=>{e.scrollTop=0;e.dispatchEvent(new Event("scroll"))}')
             send({**record,'call_id':'new'})

@@ -36,7 +36,7 @@ def test_endpoint_optional_frames_drop_when_full_and_install_contains_module(tmp
     endpoint.send_status(handle,'tool_activity',payload)
     assert queue.get_nowait() == {'type':'tool_activity','request_id':'request','payload':payload}
     for _ in range(100): queue.put_nowait({})
-    endpoint.send_status(handle,'tool_activity',payload)
+    endpoint.send_status(handle,'tool_activity',{'action':'call','turn_id':'a','call_id':'one'})
     assert queue.qsize() == 100
     _, files = channel_files(tmp_path)
     assert any(f.relative_destination=='tool_activity.py' for f in files)
@@ -91,7 +91,7 @@ def test_real_channel_router_to_provider_and_sidecar():
     asyncio.run(run())
 
 
-def test_end_bypasses_optional_activity_limit():
+def test_lifecycle_bypasses_optional_activity_limit():
     endpoint = DesktopAvatarEndpoint(endpoint=EndpointConfig('desktop','desktop_avatar','desktop.sock'),socket_path=Path('desktop.sock'))
     queue = asyncio.Queue(maxsize=256)
     endpoint.sessions['s'] = SimpleNamespace(outbound=queue, closed=False)
@@ -105,3 +105,9 @@ def test_end_bypasses_optional_activity_limit():
     for _ in range(100):
         queue.get_nowait()
     assert queue.get_nowait()['payload']['action'] == 'end'
+    for _ in range(100):
+        queue.put_nowait({'type': 'text_delta'})
+    endpoint.send_status(handle, 'tool_activity', {'action':'begin','turn_id':'b'})
+    for _ in range(100):
+        queue.get_nowait()
+    assert queue.get_nowait()['payload']['action'] == 'begin'

@@ -117,6 +117,7 @@ class DesktopAvatarEndpoint(SocketChannelEndpoint):
     rpc_timeout_seconds: float = 3.0
     _process: Any = field(default=None, init=False, repr=False)
     _startup_error: str = field(default="", init=False, repr=False)
+    _runtime_state: dict[str, object] = field(default_factory=lambda: {"sleeping": False}, init=False, repr=False)
     _sidecar_command_override: tuple[str, ...] | None = field(default=None, init=False, repr=False)
 
     async def start_async(self) -> None:
@@ -185,6 +186,24 @@ class DesktopAvatarEndpoint(SocketChannelEndpoint):
 
     supports_tool_activity = True
 
+    def on_runtime_state(self, state: dict[str, object]) -> None:
+        """Broadcast resident sleep independently of the active chat route."""
+        if not isinstance(state.get("sleeping"), bool):
+            return
+        if self._runtime_state == {"sleeping": state["sleeping"]}:
+            return
+        self._runtime_state = {"sleeping": state["sleeping"]}
+        for session in tuple(self.sessions.values()):
+            if session.ready_notified and not session.closed:
+                session.outbound.put_nowait({"type": "runtime_state", "payload": dict(self._runtime_state)})
+
+    def _mark_session_ready(self, session) -> None:
+        was_ready = session.ready_notified
+        super()._mark_session_ready(session)
+        if not was_ready:
+            # Send the authoritative snapshot after any transport replay.
+            session.outbound.put_nowait({"type": "runtime_state", "payload": dict(self._runtime_state)})
+
     def send_status(self, response_handle: Any, kind: str, payload: dict[str, Any]) -> None:
         """Project Pal turn hooks into the avatar's persistent activity state."""
 
@@ -192,7 +211,8 @@ class DesktopAvatarEndpoint(SocketChannelEndpoint):
             # Optional UI traffic must never fail delivery of a tool or reply.
             with contextlib.suppress(Exception):
                 session = self._require_session(response_handle)
-                if payload.get("action") == "end" or session.outbound.qsize() < 100:
+                # Losing begin makes every later call invisible to the projection.
+                if payload.get("action") in {"begin", "end"} or session.outbound.qsize() < 100:
                     session.outbound.put_nowait({
                         "type": "tool_activity", "payload": dict(payload),
                         "request_id": str(response_handle.reply_target.get("request_id") or ""),
