@@ -56,7 +56,7 @@ desktop_avatar/
 ```
 
 浏览器默认加载原稿风格的 Pal（`/?skin=pal`）：位图保留白壳质感，SVG 驱动表情、粒子和肩肘腕动作。
-默认显示上半身，原始素材仍保留全身；三张运行时纹理约 1.28 MB，无需加载 GLB / Three.js。
+默认显示上半身，原始素材仍保留全身；四张运行时纹理约 3.77 MB，无需加载 GLB / Three.js。
 小样与正式桌宠共用动画代码，状态仍由 sidecar 驱动，临时表情完成后回报原始状态名称。
 系统开启减少动态效果时显示静态表情，完成回报仍正常发出；隐藏页面暂停动画。
 
@@ -188,7 +188,7 @@ http://<家里Pal的IP>:8765/
 一次好奇、眨眼或开心互动，随后回到服务端给出的状态。
 
 `standby` 时客户端会每隔一段随机时间轮播无聊、偷吃薯片、喝可乐、伸懒腰等本地 idle 动作。
-默认分层形象轮播好奇、零食、疑惑动作，3D 形象调用模型自带 motion（默认静音）；turn 开始、流式回复、工具执行或显式 `show_emotion`
+默认分层形象随机轮播赛博零食、赛博可乐、无聊挠头、阴郁小乌云，每次间隔 14–32 秒，避免连续重复同一个动作。可乐使用手、罐和吸管一体绘制的手件，通过腕关节举到嘴边、啜饮并收回；阴郁 `gloomy` 是浏览器本地待机动作，不新增 Pal 工具状态。页面隐藏时停止轮播，回到页面后重新计时；本地待机动作不会向 Pal 回报表情完成。3D 形象调用模型自带 motion（默认静音）；turn 开始、流式回复、工具执行或显式 `show_emotion`
 状态到达时会立即停止 idle motion，由新状态抢占。
 
 待机达到空闲阈值后进入 `sleeping`，睡满一小时自动回到 `standby`，继续空闲时可再次入睡。
@@ -230,4 +230,18 @@ provider/浏览器重连会收到最新快照，状态不写入聊天历史。�
 
 第三方浏览器依赖的许可证已经随包保留，详见 `THIRD_PARTY_NOTICES.md`。
 
-默认分层形象新增：工具失败 `error` 的叉眼张嘴、`crying` 眼泪、`shy` 红晕、`awkward` 偷吃被发现的心虚眼、`bored` 阴郁挠头、`celebrate` 烟花、`agree` OK 手势轻挥。`proud` 共用得意表情，`clap` 仍共用开心；`dance` 已从对外状态与工具选项移除，旧 GLB 内部动作名称保留以兼容模型。
+默认分层形象新增：工具失败 `error` 的叉眼张嘴、`crying` 眼泪、`shy` 红晕、`awkward` 偷吃被发现的心虚眼、`bored` 无聊挠头、`celebrate` 烟花、`agree` OK 手势轻挥。开心、难过、心虚、无聊的眼形与嘴型按概念图调整；`smirk` 使用独立坏笑，`proud` 共用坏笑，`cheeky` 使用单眼笑与吐舌，`clap` 仍共用开心；`dance` 已从对外状态与工具选项移除，旧 GLB 内部动作名称保留以兼容模型。
+
+### Core 系统状态通知
+
+新版 Pal 通过 Core bus 发布系统观察，桌宠 provider 将其转为无聊天路由的
+`core_event` 帧，并通过 `runtime_state` 保存/补发 sleeping 与当前 failure 状态。
+工具失败短暂显示 `panic`；故障处理期间显示 `error` 和来源 `subsystem`，
+普通 turn 结束或后续工具活动不会覆盖它。显示恢复后使用最新的普通活动状态。
+这些通知不写聊天历史，也不发送 `avatar_action_finished` 给 Pal 的表情队列。
+原有 `tool_activity` 继续负责工具详情，不重复触发失败动画。
+
+本次涉及 Pal resident Core/Channel/Failure，需外部完整重启才能加载；桌宠仍需
+安装对应 provider/client 文件并刷新浏览器。仅刷新桌宠无法启用 Core 新事件。
+其他硬件插件可通过 Pal 的 `scope.subscribe_core_events(...)` 独立订阅，
+无需依赖 desktop_avatar 或它的 socket。

@@ -2,3 +2,5 @@ plugin_id = "desktop_avatar_emotion"
 entrypoint = "runtime"
 version = "0.1.13"
 enabled_by_default = true
+lifecycle_protocol = "raii.v1"
+module_id = "desktop_avatar_emotion"

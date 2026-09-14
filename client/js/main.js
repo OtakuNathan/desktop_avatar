@@ -44,6 +44,11 @@
   let historyLoadingIndicator = null;
   let idleActionTimer = null;
   let idleActionResetTimer = null;
+  let systemFailures = [];
+  let systemReactionTimer = null;
+  let latestPalState = "standby";
+  let lastIdleAction = null;
+  let idleBlocked = false;
   let notificationAudioContext = null;
   const notifiedReplyIds = new Set();
   const bubbleMarkdown = new WeakMap();
@@ -71,6 +76,7 @@
     "avatar-state-love",
     "avatar-state-panic",
     "avatar-state-bored",
+    "avatar-state-gloomy",
     "avatar-state-greeting",
     "avatar-state-celebrate",
     "avatar-state-laugh",
@@ -84,9 +90,10 @@
     "avatar-state-stretching",
   ];
   const IDLE_ACTIONS = CFG.renderer === "raster" ? [
-    { state: "curious", duration: 3000 },
     { state: "snacking", duration: 4200 },
-    { state: "confused", duration: 4600 },
+    { state: "drinking", duration: 5600 },
+    { state: "bored", duration: 4600 },
+    { state: "gloomy", duration: 4600 },
   ] : [
     { state: "bored", duration: 4200 },
     { state: "snacking", duration: 5200 },
@@ -129,6 +136,8 @@
         container: avatarStage,
         modelPath: CFG.renderer === "webgl" ? await resolvePalModelPath() : undefined,
         onActionFinished: (state) => {
+          if (systemFailures.length) { renderState(latestPalState); return; }
+          if (systemReactionTimer !== null || idleActionResetTimer !== null) return;
           if (!ws || ws.readyState !== WebSocket.OPEN) return;
           ws.send(JSON.stringify({ type: "avatar_action_finished", state: state }));
         },
@@ -576,7 +585,7 @@
       chatInput.focus();
       return;
     }
-    cancelIdleAction();
+    interruptIdleAction();
     stopNativeMotion();
     chatInput.value = "";
     autosizeChatInput();
@@ -605,6 +614,7 @@
     love: "Affectionate 💗",
     panic: "Panicking 😰",
     bored: "Bored 🫠",
+    gloomy: "Gloomy 🌧️",
     greeting: "Greeting 👋",
     celebrate: "Celebrating 🎉",
     laugh: "Laughing 😆",
@@ -637,15 +647,23 @@
   }
 
   function renderState(state) {
-    currentAvatarState = residentSleeping ? "sleeping" : normalizeState(state);
+    latestPalState = normalizeState(state);
+    if (systemReactionTimer !== null) {
+      if (!residentSleeping && !systemFailures.length) return;
+      clearTimeout(systemReactionTimer); systemReactionTimer = null;
+    }
+    currentAvatarState = systemFailures.length ? "error" : residentSleeping ? "sleeping" : latestPalState;
+    idleBlocked = false;
     cancelIdleAction();
-    stateBadge.textContent = STATE_LABEL[currentAvatarState];
+    const module = systemFailures.at(-1)?.subsystem || "";
+    stateBadge.textContent = module ? `Error · ${module}` : STATE_LABEL[currentAvatarState];
     stateBadge.className = "state-badge " + currentAvatarState;
     applyAvatarState(currentAvatarState);
+    palController()?.setCaption?.(module);
     if (currentAvatarState === "standby") scheduleIdleAction();
   }
 
-  function applyAvatarState(state) {
+  function applyAvatarState(state, localMotion = false) {
     const normalized = normalizeState(state);
     const avatar = avatarElement();
     if (!avatar) return;
@@ -654,13 +672,14 @@
     void avatar.offsetWidth;
     avatar.classList.add("avatar-state-" + normalized);
     avatar.dataset.avatarState = normalized;
-    playNativeMotion(normalized);
+    playNativeMotion(normalized, localMotion);
   }
 
-  function playNativeMotion(state) {
+  function playNativeMotion(state, localMotion = false) {
     const controller = palController();
     if (!controller) return false;
-    controller.setState(state);
+    if (localMotion && CFG.renderer === "raster") controller.startMotion(state);
+    else controller.setState(state);
     return true;
   }
 
@@ -675,9 +694,21 @@
     idleActionResetTimer = null;
   }
 
+  function interruptIdleAction() {
+    const playing = idleActionResetTimer !== null;
+    idleBlocked = true;
+    cancelIdleAction();
+    if (playing) {
+      stopNativeMotion();
+      stateBadge.textContent = STATE_LABEL[currentAvatarState];
+      stateBadge.className = "state-badge " + currentAvatarState;
+      applyAvatarState(currentAvatarState);
+    }
+  }
+
   function scheduleIdleAction() {
     cancelIdleAction();
-    if (currentAvatarState !== "standby") return;
+    if (currentAvatarState !== "standby" || idleBlocked || document.hidden || residentSleeping) return;
     const minimumDelay = Math.max(1000, Number(CFG.idleActionMinMs ?? 14000));
     const jitter = Math.max(0, Number(CFG.idleActionJitterMs ?? 18000));
     const delay = minimumDelay + Math.floor(Math.random() * jitter);
@@ -686,12 +717,14 @@
 
   function playIdleAction() {
     idleActionTimer = null;
-    if (currentAvatarState !== "standby") return;
-    const action = IDLE_ACTIONS[Math.floor(Math.random() * IDLE_ACTIONS.length)];
+    if (currentAvatarState !== "standby" || idleBlocked || document.hidden || residentSleeping) return;
+    const choices = IDLE_ACTIONS.filter(action => action.state !== lastIdleAction);
+    const action = choices[Math.floor(Math.random() * choices.length)];
+    lastIdleAction = action.state;
     stopNativeMotion();
     stateBadge.textContent = STATE_LABEL[action.state];
     stateBadge.className = "state-badge " + action.state;
-    applyAvatarState(action.state);
+    applyAvatarState(action.state, true);
     idleActionResetTimer = setTimeout(() => {
       idleActionResetTimer = null;
       if (currentAvatarState !== "standby") return;
@@ -702,6 +735,14 @@
       scheduleIdleAction();
     }, action.duration);
   }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      const blocked = idleBlocked;
+      interruptIdleAction();
+      idleBlocked = blocked;
+    } else if (currentAvatarState === "standby") scheduleIdleAction();
+  });
 
   // ---------- WebSocket ----------
   function connect() {
@@ -757,6 +798,7 @@
     if (kind === "chat_message") {
       if (frame.sender === "avatar") {
         const event = String(frame.event || "delta");
+        if (event === "start" || event === "delta") interruptIdleAction();
         if (event === "start") {
           beginAvatarMessage(frame.message_id);
         } else if (event === "done") {
@@ -771,13 +813,30 @@
         addBubble("user", frame.text || "");
       }
     } else if (kind === "tool_activity") {
+      if (["begin", "call"].includes(frame.payload?.action)) interruptIdleAction();
       toolWorkspace.handle(frame.payload || {});
+    } else if (kind === "core_event") {
+      const toolFailed = frame.topic === "turn.tool_call_failed";
+      const unrecovered = frame.topic === "failure.finished" && ["failed", "degraded"].includes(frame.payload?.status);
+      if ((toolFailed || unrecovered) && !residentSleeping && !systemFailures.length) {
+        interruptIdleAction();
+        clearTimeout(systemReactionTimer);
+        applyAvatarState(toolFailed ? "panic" : "error", true);
+        palController()?.setCaption?.(String(frame.payload?.subsystem || "execution"));
+        systemReactionTimer = setTimeout(() => {
+          systemReactionTimer = null;
+          renderState(latestPalState);
+        }, 2600);
+      }
     } else if (kind === "runtime_state") {
+      const hadFailure = systemFailures.length > 0;
+      systemFailures = Array.isArray(frame.payload?.failures) ? frame.payload.failures : [];
       if (typeof frame.payload?.sleeping === "boolean") {
         const wasSleeping = residentSleeping;
         residentSleeping = frame.payload.sleeping;
         if (residentSleeping || wasSleeping) renderState(residentSleeping ? "sleeping" : "standby");
       }
+      if (systemFailures.length || hadFailure) renderState(latestPalState);
     } else if (kind === "avatar_state") {
       renderState(frame.state || "standby");
       if (frame.state === "standby") sealBubble();

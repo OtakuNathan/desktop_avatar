@@ -17,11 +17,13 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
     working: ['工作', 'round', 'smile'], sleeping: ['睡觉', 'closed', 'flat'],
     curious: ['好奇 · 星星眼', 'star', 'small'], love: ['喜欢 · 爱心眼', 'heart', 'smile'],
     wink: ['Wink · 0_<', 'wink', 'smirk'], shock: ['惊醒', 'wide', 'o'],
-    happy: ['开心', 'happy', 'smile'], cheeky: ['得瑟', 'wink', 'smirk'],
-    snacking: ['赛博零食', 'happy', 'chew'], sad: ['难过', 'round', 'sad'],
-    error: ['工具失败 · 崩溃脸', 'cross', 'open'], shy: ['害羞 · 脸红', 'happy', 'small'],
+    happy: ['开心', 'happy', 'grin'], cheeky: ['耍贱 · 吐舌', 'playful', 'tongue'],
+    smirk: ['坏笑', 'sly', 'smirk'],
+    snacking: ['赛博零食', 'happy', 'chew'], sad: ['难过', 'pleading', 'pout'],
+    drinking: ['赛博可乐', 'round', 'small'],
+    error: ['故障 · 崩溃脸', 'cross', 'open'], shy: ['害羞 · 脸红', 'happy', 'small'],
     awkward: ['尴尬 · 偷吃被发现', 'cookie', 'small'], crying: ['哭 · 眼泪', 'round', 'sad'],
-    bored: ['无聊 · 阴郁', 'round', 'flat'], celebrate: ['庆祝 · 烟花', 'happy', 'smile'],
+    bored: ['无聊 · 挠头', 'heavy', 'flat'], gloomy: ['阴郁 · 小乌云', 'heavy', 'sad'], celebrate: ['庆祝 · 烟花', 'happy', 'grin'],
     agree: ['同意 · OK 手势', 'happy', 'smile'],
     confused: ['疑惑 · 问号眼', 'question', 'small'], panic: ['懵圈 · 大头螺旋眼', 'spiral', 'o'], angry: ['生气', 'round', 'sad'],
   };
@@ -32,12 +34,16 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
     sad: 'M 283 323 Q 296 312 309 323',
     o: 'M 296 310 C 306 310 306 328 296 328 C 286 328 286 310 296 310',
     chew: 'M 285 316 Q 296 332 307 316 Q 296 311 285 316',
+    grin: 'M 279 316 Q 296 320 313 316 C 312 334 281 334 279 316 Z',
+    pout: 'M 290 322 Q 296 313 302 322',
+    tongue: 'M 292 319 Q 303 320 315 314 L 313 330 C 309 340 296 337 295 330 Z',
   };
   let base = 'standby', state = base, age = 0, paused = reduce.matches, slow = false;
+  let caption = '';
   let raf = 0, timer = 0, previous = 0, blinkAge = null;
   const animated = () => !baseStates.has(state) || blinkAge !== null || state === 'sleeping' || state === 'thinking';
   const ease = t => t * t * (3 - 2 * t);
-  const duration = () => ['greeting', 'agree', 'confused', 'bored'].includes(state) ? 4200 : ['snacking', 'celebrate'].includes(state) ? 3600 : state === 'shock' ? 1100 : 2600;
+  const duration = () => state === 'drinking' ? 5200 : ['greeting', 'agree', 'confused', 'bored', 'gloomy'].includes(state) ? 4200 : ['snacking', 'celebrate'].includes(state) ? 3600 : state === 'shock' ? 1100 : 2600;
   function cancel() { clearTimeout(timer); cancelAnimationFrame(raf); timer = raf = 0; previous = 0; }
   function star(cx) {
     const points = Array.from({length: 10}, (_, i) => {
@@ -59,27 +65,51 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
     }).join(' ');
     return `<g class="spiral-eye" data-cx="${cx}" transform="translate(${cx} 279)"><path d="${points}" stroke-width="4"/></g>`;
   }
+  // Cut the luminous eye silhouette with an upper lid instead of flattening
+  // the whole iris. The pupil keeps its round shape, as in the concept sheet.
+  function conceptEye(cx, shape, lookX = 0, lookY = 0, className = '') {
+    const id = `expression-lid-${cx}`;
+    return `<g class="concept-eye ${className}" transform="translate(${cx} 279)">
+      <defs><clipPath id="${id}"><path d="${shape}"/></clipPath></defs>
+      <g clip-path="url(#${id})" stroke="none">
+        <circle r="30" fill="url(#iris)"/>
+        <g transform="translate(${lookX} ${lookY})">
+          <circle r="14" fill="url(#pupil)"/>
+          <circle cx="5" cy="-8" r="4" fill="#e8ffff"/>
+          <circle cx="-5" cy="7" r="1.8" fill="#68dcff" opacity=".65"/>
+        </g>
+      </g></g>`;
+  }
+  const roundEye = 'M -29 0 C -29 -39 29 -39 29 0 C 29 36 -29 36 -29 0 Z';
   function face() {
     const [, kind, mouth] = presets[state];
     irises.forEach((eye, i) => { eye.style.opacity = ['round', 'wide'].includes(kind) || kind === 'wink' && i === 0 ? '1' : '0'; });
     const art = {
       cross: () => '<path class="crash-eye" d="M 218 260 L 254 296 M 254 260 L 218 296 M 338 260 L 374 296 M 374 260 L 338 296"/>',
-      cookie: () => [236, 356].map(cx => `<g class="cookie-eye"><path d="M ${cx-26} 281 Q ${cx-23} 251 ${cx} 255 Q ${cx+25} 251 ${cx+27} 279 Q ${cx+9} 294 ${cx-26} 281" fill="#28dfff" stroke-width="2"/><path d="M ${cx+7} 264 Q ${cx-3} 273 ${cx+8} 281" stroke="#0876ad" stroke-width="5"/><path d="M ${cx-16} 265 L ${cx-10} 274 M ${cx-9} 261 L ${cx-3} 270" stroke="#b9ffff" stroke-width="2"/></g>`).join(''),
+      cookie: () => [236, 356].map(cx => conceptEye(cx, 'M -27 -16 Q 0 -26 26 -15 Q 32 -2 27 17 Q 0 20 -27 12 Q -32 0 -27 -16 Z', 18, 1, 'cookie-eye')).join(''),
+      pleading: () => [236, 356].map(cx => conceptEye(cx, roundEye, cx === 236 ? 9 : -9, -16)).join(''),
+      heavy: () => [236, 356].map(cx => conceptEye(cx, 'M -29 0 L 29 0 C 29 35 -29 35 -29 0 Z', 5, 0)).join(''),
+      sly: () => conceptEye(236, 'M -28 -17 L 28 -4 C 28 34 -31 34 -28 -17 Z', 9, -6)
+        + conceptEye(356, 'M -28 -4 L 28 -17 C 31 34 -28 34 -28 -4 Z', -9, -6),
+      playful: () => conceptEye(236, roundEye, 9, -2)
+        + '<path d="M 329 284 Q 352 255 379 271 Q 358 268 337 281 Q 354 277 366 284" stroke-width="5"/>',
       question: () => question(236, 276) + question(356, 282),
       spiral: () => spiral(236) + spiral(356),
       star: () => star(236) + star(356), heart: () => heart(236) + heart(356),
-      happy: () => '<path d="M 211 283 Q 236 253 261 283 M 331 283 Q 356 253 381 283"/>',
+      happy: () => '<path d="M 209 284 C 218 257 248 257 263 284 C 247 267 224 267 209 284 Z M 329 284 C 338 257 368 257 383 284 C 367 267 344 267 329 284 Z" fill="url(#iris)" stroke-width="2"/>',
       closed: () => '<path d="M 211 279 Q 236 285 261 279 M 331 279 Q 356 285 381 279"/>',
       wink: () => '<path id="wink-mark" d="M 371 263 L 345 279 L 371 292"/>',
     };
     $('expressive-eyes').innerHTML = `<g fill="none" stroke="#31e6ff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">${art[kind]?.() || ''}</g>`;
     $('mouth').setAttribute('d', mouths[mouth]);
-    const brows = state === 'angry' ? ['M 216 229 Q 235 234 254 241', 'M 338 241 Q 357 234 376 229']
+    const brows = ['angry', 'smirk'].includes(state) ? ['M 216 229 Q 235 232 254 241', 'M 338 241 Q 357 232 376 229']
       : ['curious', 'confused', 'wink', 'cheeky'].includes(state) ? ['M 215 227 Q 232 217 250 223', 'M 342 235 Q 360 232 376 238']
-      : ['sad', 'crying', 'awkward'].includes(state) ? ['M 218 240 Q 238 237 250 228', 'M 342 228 Q 354 237 374 240']
+      : ['sad', 'crying', 'awkward', 'gloomy'].includes(state) ? ['M 218 240 Q 238 237 250 228', 'M 342 228 Q 354 237 374 240']
+      : state === 'bored' ? ['M 218 244 Q 233 238 249 243', 'M 343 243 Q 359 238 374 244']
       : state === 'shock' ? ['M 218 224 Q 234 214 250 220', 'M 342 220 Q 358 214 374 224']
       : ['M 218 235 Q 234 226 250 230', 'M 342 230 Q 358 226 374 235'];
     $('brow-left').setAttribute('d', brows[0]); $('brow-right').setAttribute('d', brows[1]);
+    $('cheeks').setAttribute('opacity', ['bored', 'gloomy', 'shock', 'smirk'].includes(state) ? '0' : '.6');
     $('cheeks').setAttribute('stroke', state === 'love' ? '#ff78d4' : '#25dfff');
     $('caption').textContent = state === 'working' ? '· · ·' : '';
     if ($('state-label')) $('state-label').textContent = `${presets[state][0]} · ${state}`;
@@ -99,6 +129,7 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
     const t = blinkAge;
     openness(t === null ? 1 : t < 100 ? 1 - ease(t / 100) : t < 135 ? 0 : t < 315 ? ease((t - 135) / 180) : 1);
     $('snack').setAttribute('opacity', '0');
+    $('cyber-cola').setAttribute('opacity', '0');
     $('mouth').setAttribute('transform', '');
     $('particles').replaceChildren(); $('head-effect').replaceChildren();
     $('caption').setAttribute('y', '100');
@@ -116,6 +147,13 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
     overlay.dataset.headScale = String(scale);
     animateExpression();
     animateArms();
+    if (caption) $('caption').textContent = caption;
+    if (state === 'drinking') {
+      const t = reduce.matches ? 2300 : age;
+      const sipping = t >= 1650 && t <= 3300;
+      $('mouth').setAttribute('d', sipping ? 'M 292 318 Q 296 322 300 318' : mouths.small);
+      if (t > 3750) $('caption').textContent = 'Ahh… ⚡';
+    }
     if (state === 'snacking') {
       const swallowed = Math.max(0, Math.min(1, (age - 1400) / 350));
       const matrix = overlay.getScreenCTM().inverse().multiply($('pinch-hand').getScreenCTM());
@@ -149,7 +187,7 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
       });
       if (state === 'curious') $('particles').innerHTML = sparkles(age / 1700, '#8affff');
     }
-    if (state === 'wink' || state === 'cheeky') {
+    if (state === 'wink') {
       const closure = age < 320 ? ease(age / 320) : age < 1400 ? 1 : 1 - ease(Math.min(1, (age - 1400) / 480));
       lids[1].setAttribute('ry', Math.max(.001, 30 * (1 - closure)));
       irises[1].style.opacity = String(1 - closure);
@@ -176,7 +214,12 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
     }
     if (state === 'error') {
       $('mouth').setAttribute('fill', '#08273a');
+    } else if (['grin', 'tongue'].includes(presets[state][2])) {
+      $('mouth').setAttribute('fill', 'url(#iris)');
     } else $('mouth').setAttribute('fill', 'none');
+    if (state === 'cheeky') {
+      $('particles').innerHTML = '<path d="M 303 322 L 305 329" fill="none" stroke="#0876ad" stroke-width="2" stroke-linecap="round"/>';
+    }
     if (state === 'shy') {
       const opacity = reduce.matches ? .7 : .55 + .2 * Math.sin(age / 330);
       $('particles').innerHTML = [225, 368].map(x => `<g class="blush" opacity="${opacity}"><ellipse cx="${x}" cy="311" rx="24" ry="10" fill="#ff739b"/><path d="M ${x-12} 307 l -3 7 M ${x} 307 l -3 7 M ${x+12} 307 l -3 7" stroke="#ffc0d3" stroke-width="2"/></g>`).join('');
@@ -187,7 +230,7 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
         return `<path class="tear" transform="translate(${x} ${294 + phase * 43})" d="M 0 -8 C -2 -3 -9 3 -7 8 C -5 16 6 16 8 8 C 10 3 3 -4 0 -8 Z" fill="#52cfff" stroke="#b6f4ff" stroke-width="1.5" opacity="${.9 - phase * .45}"/>`;
       }).join('');
     }
-    if (state === 'bored') {
+    if (state === 'gloomy') {
       $('head-effect').innerHTML = `<g class="gloom" fill="none" stroke="#929ed5" stroke-width="4" stroke-linecap="round"><path d="M 345 123 Q 331 108 341 98 Q 349 91 361 96 Q 370 80 386 91 Q 400 83 409 99 Q 428 100 421 115 Q 412 128 394 122 Z" fill="#363b66"/>${[349,365,381,397,413].map((x,i)=>`<path d="M ${x} 139 v ${18 + (reduce.matches ? 0 : 5 * Math.sin(age/250+i))}"/>`).join('')}</g>`;
     }
     if (state === 'celebrate') {
@@ -218,7 +261,8 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
     const wave = state === 'greeting' || state === 'agree';
     const okay = state === 'agree';
     const eating = state === 'snacking';
-    const scratch = ['thinking', 'confused', 'bored'].includes(state);
+    const drinking = state === 'drinking';
+    const scratch = ['thinking', 'confused', 'bored'].includes(state) && age < 4200;
     if (wave) {
       const envelope = ease(Math.min(1, age / 750)) * (1 - ease(Math.max(0, Math.min(1, (age - 3350) / 850))));
       const oscillation = Math.sin(Math.max(0, age - 750) / 150);
@@ -240,13 +284,41 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
       wrist = -10 * fold;
     }
     if (eating) {
-      const lift = ease(Math.min(1, age / 1250));
-      const lower = 1 - ease(Math.max(0, Math.min(1, (age - 1850) / 1000)));
+      const t = age;
+      const lift = ease(Math.min(1, t / 1250));
+      const lower = 1 - ease(Math.max(0, Math.min(1, (t - 1850) / 1000)));
       const envelope = lift * lower;
       shoulder = -50 * envelope;
       elbow = -125 * envelope;
       wrist = 45 * envelope;
     }
+    let colaOpacity = 0;
+    if (drinking) {
+      const t = reduce.matches ? 2300 : age;
+      const ramp = (start, end) => ease(Math.max(0, Math.min(1, (t - start) / (end - start))));
+      const hold = ramp(0, 450) * (1 - ramp(4700, 5150));
+      const sip = ramp(500, 1650) * (1 - ramp(3300, 4350));
+      // The hand and straw are one rigid sprite. Solve the arm for a wrist
+      // target derived from its straw tip (1068,133), so no prop slides or stretches.
+      const scale = .1, anchor = { x: 250, y: 1020 }, angle = -10 * Math.PI / 180;
+      const tipX = (1068 - anchor.x) * scale, tipY = (133 - anchor.y) * scale;
+      const sipWrist = {
+        x: 296 - (tipX * Math.cos(angle) - tipY * Math.sin(angle)),
+        y: 318 - (tipX * Math.sin(angle) + tipY * Math.cos(angle)),
+      };
+      const x = 155 + (185 - 155) * hold + (sipWrist.x - 185) * sip;
+      const y = 575 + (555 - 575) * hold + (sipWrist.y - 555) * sip;
+      const dx = x - 199, dy = y - 415;
+      const upper = Math.hypot(-22, 68), forearm = Math.hypot(-22, 92);
+      const bend = -Math.acos(Math.max(-1, Math.min(1, (dx * dx + dy * dy - upper * upper - forearm * forearm) / (2 * upper * forearm))));
+      const heading = Math.atan2(dy, dx) - Math.atan2(forearm * Math.sin(bend), upper + forearm * Math.cos(bend));
+      shoulder = (heading - Math.atan2(68, -22)) * 180 / Math.PI;
+      elbow = (bend - Math.atan2(92, -22) + Math.atan2(68, -22)) * 180 / Math.PI;
+      // Keep the painted side grip aligned with the raised forearm and straw.
+      wrist = -10 * hold - shoulder - elbow;
+      colaOpacity = ramp(0, 450) * (1 - ramp(4400, 4700));
+    }
+    $('cyber-cola').setAttribute('opacity', colaOpacity);
     $('shoulder-joint').setAttribute('transform', `rotate(${shoulder} 199 415)`);
     $('elbow-joint').setAttribute('transform', `rotate(${elbow} 177 483)`);
     $('wrist-joint').setAttribute('transform', `rotate(${wrist} 155 575)`);
@@ -254,7 +326,7 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
     $('ok-hand').setAttribute('opacity', okay ? 1 : 0);
     $('scratch-hand').setAttribute('opacity', scratch ? 1 : 0);
     $('pinch-hand').setAttribute('opacity', eating ? 1 : 0);
-    $('rest-hand').setAttribute('opacity', wave || scratch || eating ? 0 : 1);
+    $('rest-hand').setAttribute('opacity', drinking ? 1 - colaOpacity : wave || scratch || eating ? 0 : 1);
   }
   function schedule() {
     if (destroyed || document.hidden) return;
@@ -323,7 +395,8 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
   listen(reduce, 'change', () => { paused = reduce.matches; pupils.forEach(p => { p.style.transform = ''; }); sync(); });
   face(); sync();
   return {
-    setState(next) { if (!destroyed) select(next); },
+    setCaption(text) { caption = String(text || '').slice(0, 48); if (!destroyed) face(); },
+    setState(next) { if (!destroyed && !(next === state && baseStates.has(next))) select(next); },
     stopMotion() { if (!destroyed) select(base); },
     destroy() { destroyed = true; cancel(); lifecycle.abort(); },
   };

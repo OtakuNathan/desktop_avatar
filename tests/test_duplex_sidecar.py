@@ -66,6 +66,7 @@ class _ReplyChannel(_Channel):
 class _StateMachine:
     current_state = "standby"
     resident_sleeping = False
+    runtime_state = {"sleeping": False, "failures": [], "safe_modes": []}
 
     def on_client_message(self) -> None:
         pass

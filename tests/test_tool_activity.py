@@ -70,6 +70,9 @@ def test_real_channel_router_to_provider_and_sidecar():
         queue=asyncio.Queue()
         endpoint.sessions['s']=SimpleNamespace(outbound=queue,closed=False,ready_notified=True,inflight_payload=None,delivery_ack_waiters={})
         channel.register_endpoint(endpoint)
+        assert queue.get_nowait()['type'] == 'runtime_state'
+        # Simulate the socket writer draining the initial state snapshot.
+        channel._notify_endpoint_ready('desktop')
         router=ToolActivityRouter(channel)
         router('turn.start',{'turn_id':'a','endpoint_id':'desktop','reply_target':{'session_id':'s','request_id':'r'}})
         channel.flush_endpoint_status('desktop')

@@ -72,7 +72,7 @@ DESKTOP_AVATAR_STATES = frozenset({
     "standby", "sleeping", "sleepy", "thinking", "working",
     "happy", "sad", "angry", "crying", "curious", "shock", "wink", "error", "err",
     "awkward", "smirk", "cheeky",
-    "excited", "shy", "proud", "confused", "love", "panic", "bored",
+    "excited", "shy", "proud", "confused", "love", "panic", "bored", "gloomy",
     "greeting", "celebrate", "embarrassed", "smug", "playful", "surprised", "wave",
     "laugh", "clap", "agree", "complain",
     "snacking", "drinking", "stretching", "snack", "drink", "stretch",
@@ -190,12 +190,24 @@ class DesktopAvatarEndpoint(SocketChannelEndpoint):
         """Broadcast resident sleep independently of the active chat route."""
         if not isinstance(state.get("sleeping"), bool):
             return
-        if self._runtime_state == {"sleeping": state["sleeping"]}:
+        projected = {"sleeping": state["sleeping"],
+                     "failures": list(state.get("failures", [])),
+                     "safe_modes": list(state.get("safe_modes", []))}
+        if self._runtime_state == projected:
             return
-        self._runtime_state = {"sleeping": state["sleeping"]}
+        self._runtime_state = projected
         for session in tuple(self.sessions.values()):
             if session.ready_notified and not session.closed:
                 session.outbound.put_nowait({"type": "runtime_state", "payload": dict(self._runtime_state)})
+
+    def is_ephemeral_frame(self, frame: dict[str, Any]) -> bool:
+        return frame.get("type") in {"core_event", "runtime_state"}
+
+    def on_core_event(self, topic: str, event: dict[str, object]) -> None:
+        # No request route or durable delivery: all connected displays may observe.
+        for session in tuple(self.sessions.values()):
+            if session.ready_notified and not session.closed and session.outbound.qsize() < 100:
+                session.outbound.put_nowait({"type": "core_event", "topic": topic, "payload": dict(event)})
 
     def _mark_session_ready(self, session) -> None:
         was_ready = session.ready_notified

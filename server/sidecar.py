@@ -69,7 +69,7 @@ VALID_STATES = [
     "standby", "sleeping", "thinking", "working",
     "happy", "sad", "crying", "error", "angry", "shock", "wink", "curious",
     "awkward", "smirk", "cheeky",
-    "excited", "shy", "proud", "confused", "love", "panic", "bored",
+    "excited", "shy", "proud", "confused", "love", "panic", "bored", "gloomy",
     "greeting", "celebrate",
     "laugh", "clap", "agree", "complain",
     "snacking", "drinking", "stretching",
@@ -81,7 +81,7 @@ IDLE_STATES = frozenset({"standby", "sleeping"})
 EXPRESSIVE_STATES = frozenset({
     "happy", "sad", "crying", "error", "angry", "shock", "wink", "curious",
     "awkward", "smirk", "cheeky",
-    "excited", "shy", "proud", "confused", "love", "panic", "bored",
+    "excited", "shy", "proud", "confused", "love", "panic", "bored", "gloomy",
     "greeting", "celebrate",
     "laugh", "clap", "agree", "complain",
     "snacking", "drinking", "stretching",
@@ -334,8 +334,16 @@ class StateMachine:
         self._waking = False
         self._last_activity = time.monotonic()
         self._resident_sleeping = False
+        self.runtime_state = {"sleeping": False, "failures": [], "safe_modes": []}
 
     def on_runtime_state(self, payload: dict[str, Any]) -> None:
+        if not isinstance(payload.get("sleeping"), bool):
+            return
+        self.runtime_state = {
+            "sleeping": payload["sleeping"],
+            "failures": list(payload.get("failures", [])),
+            "safe_modes": list(payload.get("safe_modes", [])),
+        }
         sleeping = payload.get("sleeping")
         if not isinstance(sleeping, bool) or sleeping == self._resident_sleeping:
             return
@@ -372,7 +380,8 @@ class StateMachine:
         if self._resident_sleeping:
             return
         was_sleeping = self._base_state == "sleeping"
-        if self._waking:
+        if self._waking or self._override_state is not None:
+            # Keep an explicitly requested clip while updating its underlying pose.
             self._set_base_state("thinking")
             return
         self._override_state = None
@@ -1212,7 +1221,7 @@ class AvatarWebSocketServer:
     @staticmethod
     def _is_transient_reply(reply: dict[str, Any]) -> bool:
         reply_type = str(reply.get("type") or "")
-        if reply_type in {"text_delta", "tool_call", "op_tool_call", "tool_activity", "runtime_state"}:
+        if reply_type in {"text_delta", "tool_call", "op_tool_call", "tool_activity", "runtime_state", "core_event"}:
             return True
         return (
             reply_type in {"llm_done", "done"}
@@ -1333,7 +1342,7 @@ class AvatarWebSocketServer:
         self._connected += 1
         try:
             await ws.send(json.dumps({"type": "avatar_state", "state": self._sm.current_state}))
-            await ws.send(json.dumps({"type": "runtime_state", "payload": {"sleeping": self._sm.resident_sleeping}}))
+            await ws.send(json.dumps({"type": "runtime_state", "payload": dict(self._sm.runtime_state)}))
             await self.send_history_page(ws, mode="replace")
             for activity in self._tool_activity.frames():
                 await ws.send(json.dumps(activity, ensure_ascii=False))
@@ -1609,11 +1618,15 @@ class AvatarWebSocketServer:
 
     async def _project_pal_reply(self, reply: dict[str, Any]) -> None:
         """Project one Pal frame without assuming responses are contiguous."""
+        if reply.get("type") == "core_event":
+            if isinstance(reply.get("payload"), dict) and isinstance(reply.get("topic"), str):
+                await self.broadcast_frame({"type": "core_event", "topic": reply["topic"], "payload": reply["payload"]})
+            return
         if reply.get("type") == "runtime_state":
             payload = reply.get("payload")
             if isinstance(payload, dict):
                 self._sm.on_runtime_state(payload)
-                await self.broadcast_frame({"type": "runtime_state", "payload": {"sleeping": self._sm.resident_sleeping}})
+                await self.broadcast_frame({"type": "runtime_state", "payload": dict(self._sm.runtime_state)})
             return
         if reply.get("type") == "tool_activity":
             payload = reply.get("payload")

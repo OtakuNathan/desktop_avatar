@@ -37,6 +37,7 @@ class DesktopAvatarEmotionInput(StrictToolModel):
         "love",
         "panic",
         "bored",
+        "gloomy",
         "greeting",
         "celebrate",
         "laugh",

@@ -4,12 +4,12 @@ import { createPalAnimation } from './pal-raster-animation.js';
 // Keep wire state identity even when an expression shares another state's art.
 const aliases = {
   sleepy: 'sleeping', err: 'error', laugh: 'happy', clap: 'happy',
-  excited: 'happy', proud: 'cheeky', smirk: 'cheeky',
-  complain: 'angry', drinking: 'snacking', stretching: 'greeting',
+  excited: 'happy', proud: 'smirk',
+  complain: 'angry', stretching: 'greeting',
 };
 const states = new Set(['standby', 'thinking', 'working', 'sleeping', 'greeting',
-  'curious', 'love', 'wink', 'shock', 'happy', 'cheeky', 'snacking', 'sad',
-  'confused', 'panic', 'angry', 'error', 'shy', 'awkward', 'crying', 'bored', 'celebrate', 'agree']);
+  'curious', 'love', 'wink', 'shock', 'happy', 'cheeky', 'smirk', 'snacking', 'sad',
+  'confused', 'panic', 'angry', 'error', 'shy', 'awkward', 'crying', 'bored', 'gloomy', 'drinking', 'celebrate', 'agree']);
 let active = null;
 export async function initPalRasterAvatar({ container, onActionFinished }) {
   active?.destroy();
@@ -21,20 +21,22 @@ export async function initPalRasterAvatar({ container, onActionFinished }) {
     const image = new Image(); image.src = path; await image.decode();
   }));
   container.appendChild(widget);
-  let current = 'standby', ready = true;
+  let current = 'standby', ready = true, localMotion = false;
   const animation = createPalAnimation(widget, { onActionFinished() {
     const completed = current;
-    onActionFinished?.(completed);
+    if (!localMotion) onActionFinished?.(completed);
   }});
   const controller = {
     setState(state) {
       if (!ready) return;
+      localMotion = false;
       current = String(state || 'standby').trim().toLowerCase();
       const visual = aliases[current] || current;
       animation.setState(states.has(visual) ? visual : 'standby');
     },
-    startMotion(state) { this.setState(state); },
-    stopMotion() { animation.stopMotion(); },
+    setCaption(text) { animation.setCaption(text); },
+    startMotion(state) { this.setState(state); localMotion = true; },
+    stopMotion() { localMotion = false; animation.stopMotion(); },
     motionReady: () => ready,
     destroy() { ready = false; animation.destroy(); widget.remove(); },
   };

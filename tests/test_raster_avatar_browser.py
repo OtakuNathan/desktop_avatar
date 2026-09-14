@@ -81,7 +81,7 @@ def test_raster_channel_lifecycle_and_preview(tmp_path):
                 page.emulate_media(reduced_motion='no-preference')
                 for name, selector in [('error', '.crash-eye'), ('shy', '.blush'),
                                        ('awkward', '.cookie-eye'), ('crying', '.tear'),
-                                       ('bored', '.gloom'), ('celebrate', '.firework'), ('agree', '#ok-hand')]:
+                                       ('bored', '#scratch-hand'), ('gloomy', '.gloom'), ('celebrate', '.firework'), ('agree', '#ok-hand')]:
                     state(name)
                     page.wait_for_timeout(400)
                     assert page.locator(selector).count() > 0
