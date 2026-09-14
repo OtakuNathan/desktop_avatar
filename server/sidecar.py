@@ -283,6 +283,7 @@ class PendingIngress:
     text: str = ""
     interaction_id: str = ""
     button_token: str = ""
+    input_values: dict[str, str] | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -599,8 +600,10 @@ class PalChannelClient:
         interaction_id: str,
         button_token: str,
         request_id: str,
+        input_values: dict[str, str] | None = None,
     ) -> None:
         payload = {
+            **({"input_values": input_values} if input_values is not None else {}),
             "type": "interaction_result",
             "request_id": request_id,
             "interaction_id": str(interaction_id),
@@ -1449,13 +1452,14 @@ class AvatarWebSocketServer:
                 elif kind == "interaction_result":
                     interaction_id = str(frame.get("interaction_id") or "").strip()
                     button_token = str(frame.get("button_token") or "").strip()
-                    if not interaction_id or not button_token:
+                    values = frame.get("input_values")
+                    if (not interaction_id or not button_token or (values is not None and (not isinstance(values, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in values.items())))):
                         await ws.send(json.dumps({"type": "error", "error": "invalid_interaction_result"}))
                         continue
                     self._queue_interaction_result(
                         interaction_id,
                         button_token,
-                        origin=ws,
+                        origin=ws, input_values=values,
                     )
         except websockets.ConnectionClosed:
             pass
@@ -1481,6 +1485,7 @@ class AvatarWebSocketServer:
         button_token: str,
         *,
         origin: Any,
+        input_values: dict[str, str] | None = None,
     ) -> str:
         request_id = f"interaction_{self._history_generation}_{os.urandom(8).hex()}"
         self._ingress_queue.put_nowait(PendingIngress(
@@ -1488,7 +1493,7 @@ class AvatarWebSocketServer:
             request_id=request_id,
             origin=origin,
             interaction_id=interaction_id,
-            button_token=button_token,
+            button_token=button_token, input_values=input_values,
         ))
         return request_id
 
@@ -1535,6 +1540,7 @@ class AvatarWebSocketServer:
         button_token: str,
         *,
         request_id: str | None = None,
+        input_values: dict[str, str] | None = None,
     ) -> str:
         """Forward one browser button selection through the owning socket session."""
         request_id = request_id or f"interaction_{self._history_generation}_{os.urandom(8).hex()}"
@@ -1543,6 +1549,7 @@ class AvatarWebSocketServer:
                 interaction_id,
                 button_token,
                 request_id,
+                **({"input_values": input_values} if input_values is not None else {}),
             )
         )
         return request_id
@@ -1556,7 +1563,7 @@ class AvatarWebSocketServer:
                     await self._dispatch_interaction_to_pal(
                         pending.interaction_id,
                         pending.button_token,
-                        request_id=pending.request_id,
+                        request_id=pending.request_id, input_values=pending.input_values,
                     )
                 else:
                     await self._dispatch_to_pal(

@@ -824,3 +824,23 @@ def test_independent_emotions_preserve_identity_and_dance_is_removed():
         assert machine.current_state == "standby"
     assert sidecar_module.normalize_state("err") == "error"
     assert not machine.on_external_state("dance")
+
+
+def test_interaction_field_values_survive_bounded_transport_retry(tmp_path):
+    class Channel(_Channel):
+        def __init__(self):
+            super().__init__()
+            self.forms = []
+        async def send_interaction_result(self, interaction_id, token, request_id, *, input_values):
+            self.forms.append((interaction_id, token, request_id, input_values.copy()))
+            if len(self.forms) < 3:
+                raise ConnectionError("retry")
+    async def run():
+        channel = Channel()
+        server = _server(ChatHistoryStore(tmp_path / "history.sqlite3"), channel)
+        server._ingress_retry_delays = (0, 0)
+        value = "def f():\n    return 1\n"
+        await server._dispatch_interaction_to_pal("batch", "r1b1", request_id="same",
+            input_values={"value": value})
+        assert channel.forms == [("batch", "r1b1", "same", {"value": value})] * 3
+    asyncio.run(run())

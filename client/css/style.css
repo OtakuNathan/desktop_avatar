@@ -878,3 +878,8 @@ html[data-avatar-skin="pal"] .tool-call-status.failed, html[data-avatar-skin="pa
 .tool-parameters dt { font-weight: 600; opacity: .8; overflow-wrap: anywhere; }
 .tool-parameters dd { margin: 0 0 8px; }
 .tool-parameters pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.interaction-item { margin: 0.8em 0; }
+.interaction-item-text { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.interaction-actions label { display: block; width: 100%; }
+.interaction-actions textarea { display: block; width: 100%; min-height: 10em; box-sizing: border-box; }

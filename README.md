@@ -245,3 +245,11 @@ provider/浏览器重连会收到最新快照，状态不写入聊天历史。�
 安装对应 provider/client 文件并刷新浏览器。仅刷新桌宠无法启用 Core 新事件。
 其他硬件插件可通过 Pal 的 `scope.subscribe_core_events(...)` 独立订阅，
 无需依赖 desktop_avatar 或它的 socket。
+
+### 记忆提案审核
+
+Pal 的 compact 与 Bunshin 提案使用同一张审核卡。逐条接受、跳过或修正后，在整批概览中点击“提交已接受项”。修正界面使用预填文本框，保留换行和缩进；保存后需要重新确认该条。连接发送失败时保留编辑内容，可重试。服务端草稿可通过聊天输入 /memory_review 或 /memory_review <batch_id> 恢复。
+
+浏览器只发送服务端提供的不透明按钮 token 和声明的 input_values，不自行构造记忆写入请求。sidecar 保留字段文本和请求 ID，通过 Socket channel 控制路径转发，字段修改不进入聊天历史。
+
+此功能依赖支持 revision/items/inputs 的 Pal。更新桌宠需安装 channel 文件并重载 provider、刷新页面；配套 Pal resident Memory/Core 更改需要外部完整重启。

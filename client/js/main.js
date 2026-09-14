@@ -481,14 +481,46 @@
 
     const content = bubble.querySelector(".interaction-content");
     const actions = bubble.querySelector(".interaction-actions");
+    const revision = String(interaction.revision || "");
+    const unsentValues = new Map();
+    if (bubble.dataset.revision === revision) {
+      actions.querySelectorAll("[data-input-id]").forEach((input) => {
+        unsentValues.set(input.dataset.inputId, input.value);
+      });
+    }
+    bubble.dataset.revision = revision;
     renderBubbleMarkdown(content, interaction.text || "");
     actions.replaceChildren();
+    (interaction.items || []).forEach((item) => {
+      const section = document.createElement("section");
+      section.className = "interaction-item";
+      const title = document.createElement("strong");
+      title.textContent = `${item.title || ""} [${item.state || ""}]`;
+      const body = document.createElement("pre");
+      body.className = "interaction-item-text";
+      body.textContent = item.text || "";
+      section.append(title, body);
+      content.appendChild(section);
+    });
 
     const event = String(frame.event || "update");
     const active = event === "open" || event === "update";
     bubble.classList.toggle("resolved", !active);
     if (active) {
-      const rows = Array.isArray(interaction.buttons) ? interaction.buttons : [];
+      const rows = [...(Array.isArray(interaction.buttons) ? interaction.buttons : []),
+        ...(interaction.items || []).flatMap((item) => item.buttons || [])];
+      const inputValues = new Map();
+      (interaction.inputs || []).forEach((item) => {
+        const label = document.createElement("label");
+        label.textContent = item.label || item.input_id;
+        const input = document.createElement(item.multiline ? "textarea" : "input");
+        input.value = unsentValues.has(item.input_id) ? unsentValues.get(item.input_id) : (item.value || "");
+        input.dataset.inputId = item.input_id;
+        label.appendChild(input);
+        actions.appendChild(label);
+        inputValues.set(item.submit.token, { id: item.input_id, input });
+        rows.push([item.submit]);
+      });
       rows.forEach((row) => {
         if (!Array.isArray(row) || !row.length) return;
         const rowElement = document.createElement("div");
@@ -511,6 +543,7 @@
               type: "interaction_result",
               interaction_id: interactionId,
               button_token: token,
+              ...(inputValues.has(token) ? { input_values: { [inputValues.get(token).id]: inputValues.get(token).input.value } } : {}),
             }));
           });
           rowElement.appendChild(button);
@@ -853,6 +886,7 @@
       setHistoryLoading(false);
       showHint(frame.error || "Chat history operation failed.", true);
     } else if (kind === "error" || kind === "delivery_failed") {
+      interactionBubbles.forEach((bubble) => { if (!bubble.classList.contains("resolved")) bubble.querySelectorAll("button").forEach((button) => { button.disabled = false; }); });
       showHint(frame.error || "Operation failed.", true);
     } else if (kind === "pong") {
       // 保活，无需处理
