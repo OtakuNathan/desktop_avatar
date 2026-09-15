@@ -1,5 +1,11 @@
 # 妹妹的桌面小家（desktop_avatar）
 
+## 执行审批
+
+桌宠与 TTY、Telegram 共用 Pal 的执行审批逻辑：在哪个 channel endpoint 发起，就在哪个 endpoint 审批，不跨端代批。聊天框里的审批卡展示请求内容，提供单次批准和拒绝；过期后不能再提交。批准表示授权已通过，执行结果另行返回。
+
+桌宠沿用可信网络中的 endpoint 身份，同一 endpoint 的浏览器共享该身份，没有额外的逐用户配对。Tailscale/网络 ACL 应由部署限制访问；应用不会因为连接来自某个 IP 就验证它的 Tailscale 身份。浏览器必须从提供 WebSocket 的同一主机和端口打开桌宠页面，跨站或 `file://` 页面的 WebSocket 会被拒绝。无 Origin 的原生客户端仍依赖部署的网络访问边界。
+
 桌面上住着一个会动、会睡、会聊天的 Pal 机器人，默认使用原稿风格的位图 + SVG 分层动画，也保留 WebGL 全身模型和旧 SVG 形象。双击角色弹出聊天框，消息通过 WebSocket 进 Pal，回复流式显示，状态会驱动表情和动作。
 
 ```
@@ -92,7 +98,7 @@ python install.py --runtime-root /path/to/runtime --component emotion
 
 更新已有安装时显式加 `--force`。安装器只复制文件，不会操作正在运行的 Pal；随后通过 Pal 的
 生命周期能力热加载：新 provider 使用 `channel_provider_rescan` / endpoint attach；已有 provider
-代码更新使用 `channel_reload_provider(provider_id="desktop_avatar")`。插件使用
+代码更新使用 `channel_reload_provider(name="desktop_avatar")`。插件使用
 `plugin_rescan` / `plugin_attach`。仅重启 endpoint 不会重载 provider 代码。
 安装采用逐文件原子替换，保留安装目录中不属于发布包的文件；成功后会生成
 `.desktop-avatar-install.json`，记录版本、安装文件和 SHA-256，并立即核验安装结果。

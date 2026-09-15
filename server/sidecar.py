@@ -231,6 +231,19 @@ def serve_client_asset(
 ) -> Response | None:
     """Serve the self-contained client; WebSocket upgrades continue normally."""
     if request.headers.get("Upgrade", "").lower() == "websocket":
+        # Tailscale/ACLs establish machine access, not trust in every page open
+        # on that machine. Browser clients must use the UI served by this host.
+        # Native clients without Origin retain the deployment's network trust.
+        try:
+            origin = request.headers.get("Origin")
+            parsed = urlsplit(origin) if origin else None
+            if parsed and (parsed.scheme not in {"http", "https"} or
+                           parsed.netloc.lower() != request.headers.get("Host", "").lower() or
+                           parsed.username is not None or parsed.password is not None or
+                           parsed.path or parsed.query or parsed.fragment):
+                return _http_response(403, "Forbidden", b"Open the desktop UI from its own server.\n", "text/plain; charset=utf-8")
+        except (ValueError, LookupError):
+            return _http_response(403, "Forbidden", b"Invalid WebSocket origin.\n", "text/plain; charset=utf-8")
         return None
 
     relative = unquote(urlsplit(request.path).path).lstrip("/") or "index.html"

@@ -460,7 +460,7 @@ def main() -> int:
         print("The installer did not restart Pal or rescan providers.")
         print("New install: discover/attach the channel and plugin through Pal lifecycle tools.")
         if args.component in {"all", "channel"}:
-            print("Channel update: use channel_reload_provider with provider_id=desktop_avatar, then refresh the browser.")
+            print("Channel update: use channel_reload_provider with name=desktop_avatar, then refresh the browser.")
         if args.component in {"all", "emotion"}:
             print("Emotion update: use plugin_attach for desktop_avatar_emotion.")
     return 0

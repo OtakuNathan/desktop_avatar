@@ -274,6 +274,7 @@
 
   function clearRenderedChat() {
     sealBubble();
+    interactionBubbles.forEach((bubble) => clearTimeout(bubble.approvalExpiryTimer));
     interactionBubbles.clear();
     chatMessages.replaceChildren();
     historyCursor = null;
@@ -481,6 +482,13 @@
 
     const content = bubble.querySelector(".interaction-content");
     const actions = bubble.querySelector(".interaction-actions");
+    clearTimeout(bubble.approvalExpiryTimer);
+    const approval = interaction.interaction_kind === "approval_request";
+    bubble.classList.toggle("approval", approval);
+    if (approval) {
+      bubble.setAttribute("role", "group");
+      bubble.setAttribute("aria-label", "Execution approval");
+    }
     const revision = String(interaction.revision || "");
     const unsentValues = new Map();
     if (bubble.dataset.revision === revision) {
@@ -489,7 +497,8 @@
       });
     }
     bubble.dataset.revision = revision;
-    renderBubbleMarkdown(content, interaction.text || "");
+    if (approval) content.textContent = interaction.text || "";
+    else renderBubbleMarkdown(content, interaction.text || "");
     actions.replaceChildren();
     (interaction.items || []).forEach((item) => {
       const section = document.createElement("section");
@@ -504,8 +513,17 @@
     });
 
     const event = String(frame.event || "update");
-    const active = event === "open" || event === "update";
+    const expires = approval ? Date.parse(interaction.expires_at || "") : NaN;
+    const expired = Number.isFinite(expires) && Date.now() >= expires;
+    const active = (event === "open" || event === "update") && !expired;
     bubble.classList.toggle("resolved", !active);
+    if (expired && (event === "open" || event === "update")) {
+      content.textContent += "\n\nApproval expired. No decision can be sent from this card.";
+    }
+    if (active && Number.isFinite(expires)) {
+      bubble.approvalExpiryTimer = setTimeout(() => renderInteraction(frame),
+        Math.min(2147483647, Math.max(1, expires - Date.now() + 10)));
+    }
     if (active) {
       const rows = [...(Array.isArray(interaction.buttons) ? interaction.buttons : []),
         ...(interaction.items || []).flatMap((item) => item.buttons || [])];
@@ -534,6 +552,10 @@
           button.className = "interaction-button";
           button.textContent = label;
           button.addEventListener("click", () => {
+            if (Number.isFinite(expires) && Date.now() >= expires) {
+              renderInteraction(frame);
+              return;
+            }
             if (!ws || ws.readyState !== WebSocket.OPEN) {
               showHint("The connection is not ready. The action was not sent.", true);
               return;
