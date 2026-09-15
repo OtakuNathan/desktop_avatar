@@ -198,23 +198,45 @@ class DesktopAvatarEndpoint(SocketChannelEndpoint):
         self._runtime_state = projected
         for session in tuple(self.sessions.values()):
             if session.ready_notified and not session.closed:
+                # One pending bit per session, not a queue of stale snapshots.
+                # Keep it on the session so disconnect/reload releases it.
+                session.avatar_runtime_state_pending = True
+                self._flush_runtime_state(session)
+
+    def _flush_runtime_state(self, session) -> None:
+        if (
+            not session.closed
+            and session.ready_notified
+            and getattr(session, "avatar_runtime_state_pending", False)
+        ):
+            try:
                 session.outbound.put_nowait({"type": "runtime_state", "payload": dict(self._runtime_state)})
+            except asyncio.QueueFull:
+                return
+            session.avatar_runtime_state_pending = False
+
+    def _on_session_writable(self, session) -> None:
+        super()._on_session_writable(session)
+        self._flush_runtime_state(session)
 
     def is_ephemeral_frame(self, frame: dict[str, Any]) -> bool:
-        return frame.get("type") in {"core_event", "runtime_state"}
+        return frame.get("type") in {"core_event", "runtime_state", "tool_activity"}
 
     def on_core_event(self, topic: str, event: dict[str, object]) -> None:
         # No request route or durable delivery: all connected displays may observe.
         for session in tuple(self.sessions.values()):
             if session.ready_notified and not session.closed and session.outbound.qsize() < 100:
-                session.outbound.put_nowait({"type": "core_event", "topic": topic, "payload": dict(event)})
+                with contextlib.suppress(asyncio.QueueFull):
+                    session.outbound.put_nowait({"type": "core_event", "topic": topic, "payload": dict(event)})
 
     def _mark_session_ready(self, session) -> None:
         was_ready = session.ready_notified
         super()._mark_session_ready(session)
         if not was_ready:
-            # Send the authoritative snapshot after any transport replay.
-            session.outbound.put_nowait({"type": "runtime_state", "payload": dict(self._runtime_state)})
+            # Replay may have filled the queue. Keep the latest snapshot pending
+            # until writer progress, rather than failing the session handshake.
+            session.avatar_runtime_state_pending = True
+            self._flush_runtime_state(session)
 
     def send_status(self, response_handle: Any, kind: str, payload: dict[str, Any]) -> None:
         """Project Pal turn hooks into the avatar's persistent activity state."""
@@ -280,14 +302,15 @@ class DesktopAvatarEndpoint(SocketChannelEndpoint):
 
     def _send_tagged_message(self, response_handle: Any, message: ChannelMessage) -> None:
         session = self._require_session(response_handle)
-        session.outbound.put_nowait(
-            {
+        self._enqueue_frames(
+            session,
+            ({
                 "type": "tagged_message",
                 "request_id": str(response_handle.reply_target.get("request_id") or ""),
                 "tag": str(message.tag or ""),
                 "text": message.text,
                 "payload": dict(message.payload),
-            }
+            },),
         )
 
     def show_emotion(

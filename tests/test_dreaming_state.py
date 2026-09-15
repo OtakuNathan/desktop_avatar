@@ -106,7 +106,7 @@ def test_system_frames_skip_ack_and_replay_while_chat_remains_reliable():
         writes = []
         session = SimpleNamespace(
             session_id="writer", outbound=asyncio.Queue(), delivery_ack_enabled=True, delivery_ack_waiters={},
-            closed=False, inflight_payload=None, outbound_recovered=False,
+            closed=False, ready_notified=True, inflight_payload=None, outbound_recovered=False,
             writer=SimpleNamespace(write=writes.append, drain=AsyncMock()),
         )
         session.outbound.put_nowait({"type": "core_event", "topic": "turn.tool_call_failed", "payload": {}})

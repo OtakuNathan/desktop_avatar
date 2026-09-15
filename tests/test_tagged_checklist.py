@@ -15,6 +15,10 @@ from server.sidecar import AvatarWebSocketServer
 class _Outbound:
     def __init__(self) -> None:
         self.items: list[dict] = []
+        self.maxsize = 0
+
+    def qsize(self) -> int:
+        return len(self.items)
 
     def put_nowait(self, item: dict) -> None:
         self.items.append(item)
