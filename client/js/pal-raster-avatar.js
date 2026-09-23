@@ -1,4 +1,5 @@
 import { artwork } from './pal-raster-art.js';
+import { artwork as petraArtwork } from './petra-raster-art.js';
 import { createPalAnimation } from './pal-raster-animation.js';
 
 // Keep wire state identity even when an expression shares another state's art.
@@ -11,11 +12,13 @@ const states = new Set(['standby', 'thinking', 'working', 'sleeping', 'greeting'
   'curious', 'love', 'wink', 'shock', 'happy', 'cheeky', 'smirk', 'snacking', 'sad',
   'confused', 'panic', 'angry', 'error', 'shy', 'awkward', 'crying', 'bored', 'gloomy', 'drinking', 'celebrate', 'agree']);
 let active = null;
-export async function initPalRasterAvatar({ container, onActionFinished }) {
+export async function initPalRasterAvatar({ container, onActionFinished, skin = 'pal' }) {
   active?.destroy();
   const widget = document.createElement('div');
   widget.id = 'pal-raster-widget';
-  widget.innerHTML = `<div id="pal-raster-canvas" class="raster-stage" role="img" aria-label="Pal robot companion"><div class="robot">${artwork}</div></div>`;
+  const isPetra = skin === 'petra';
+  widget.dataset.skin = isPetra ? 'petra' : 'pal';
+  widget.innerHTML = `<div id="pal-raster-canvas" class="raster-stage" role="img" aria-label="${isPetra ? 'Petra cat-hood robot companion' : 'Pal robot companion'}"><div class="robot">${isPetra ? petraArtwork : artwork}</div></div>`;
   const paths = [...widget.querySelectorAll('image')].map(node => node.getAttribute('href'));
   await Promise.all([...new Set(paths)].map(async path => {
     const image = new Image(); image.src = path; await image.decode();

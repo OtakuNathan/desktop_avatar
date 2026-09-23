@@ -1,6 +1,9 @@
+import { petraRig } from './petra-raster-art.js';
+
 /* Shared expression rig for the desktop renderer and standalone preview. */
 export function createPalAnimation(root, { onActionFinished } = {}) {
   const $ = id => root.querySelector(`#${id}`);
+  const isPetra = root.dataset.skin === 'petra';
   const overlay = root.querySelector('.eye-overlay');
   const lids = [...root.querySelectorAll('.lid')];
   const irises = [...root.querySelectorAll('.iris-eye')];
@@ -73,7 +76,7 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
       <defs><clipPath id="${id}"><path d="${shape}"/></clipPath></defs>
       <g clip-path="url(#${id})" stroke="none">
         <circle r="30" fill="url(#iris)"/>
-        <g transform="translate(${lookX} ${lookY})">
+        <g visibility="${isPetra ? 'hidden' : 'visible'}" transform="translate(${lookX} ${lookY})">
           <circle r="14" fill="url(#pupil)"/>
           <circle cx="5" cy="-8" r="4" fill="#e8ffff"/>
           <circle cx="-5" cy="7" r="1.8" fill="#68dcff" opacity=".65"/>
@@ -110,7 +113,13 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
       : ['M 218 235 Q 234 226 250 230', 'M 342 230 Q 358 226 374 235'];
     $('brow-left').setAttribute('d', brows[0]); $('brow-right').setAttribute('d', brows[1]);
     $('cheeks').setAttribute('opacity', ['bored', 'gloomy', 'shock', 'smirk'].includes(state) ? '0' : '.6');
-    $('cheeks').setAttribute('stroke', state === 'love' ? '#ff78d4' : '#25dfff');
+    $('cheeks').setAttribute('stroke', isPetra ? '#ffadc8' : state === 'love' ? '#ff78d4' : '#25dfff');
+    if (isPetra) {
+      $('cheeks').setAttribute('d', 'M 210 312 h 13 M 369 312 h 13');
+      $('cheeks').setAttribute('stroke-width', '7');
+      $('cheeks').setAttribute('opacity', ['bored', 'gloomy', 'shock'].includes(state) ? '.3' : '.9');
+      for (const id of ['brow-left', 'brow-right']) $(id).setAttribute('opacity', state === 'angry' ? '.8' : '0');
+    }
     $('caption').textContent = state === 'working' ? '· · ·' : '';
     if ($('state-label')) $('state-label').textContent = `${presets[state][0]} · ${state}`;
     overlay.dataset.state = state;
@@ -121,8 +130,17 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
   function openness(open) {
     const kind = presets[state][1];
     const resting = state === 'bored' ? .40 : ['thinking', 'sad', 'crying'].includes(state) ? .72 : 1;
-    lids.forEach(lid => lid.setAttribute('ry', Math.max(.001, 30 * open * resting)));
+    lids.forEach(lid => lid.setAttribute('ry', Math.max(.001, (isPetra ? 24 : 30) * open * resting)));
     $('closed-eyes').setAttribute('opacity', ['round', 'wide'].includes(kind) ? Math.pow(1 - open, 10) : 0);
+    if (isPetra) {
+      root.querySelectorAll('#petra-lashes path').forEach((lash, i) => {
+        const cx = i ? 356 : 236;
+        const visible = ['round', 'wide', 'happy', 'closed'].includes(kind) || kind === 'wink' && i === 0;
+        lash.setAttribute('opacity', visible ? '1' : '0');
+        const height = ['happy', 'closed'].includes(kind) ? .3 : open * resting;
+        lash.setAttribute('transform', `translate(${cx} 279) scale(1 ${height}) translate(${-cx} -279)`);
+      });
+    }
     overlay.dataset.openness = open.toFixed(4);
   }
   function draw() {
@@ -132,17 +150,18 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
     $('cyber-cola').setAttribute('opacity', '0');
     $('mouth').setAttribute('transform', '');
     $('particles').replaceChildren(); $('head-effect').replaceChildren();
-    $('caption').setAttribute('y', '100');
+    $('caption').setAttribute('y', isPetra ? '24' : '100');
     // Scale the shell and facial overlay together around the neck; arms/body stay put.
     const bigHead = state === 'panic';
     const ramp = ease(Math.min(1, age / 340));
     const settle = 1 - ease(Math.max(0, Math.min(1, (age - 2050) / 550)));
     const amount = bigHead ? (reduce.matches ? 1 : ramp * settle) : 0;
-    const scale = 1 + amount * (.20 + (reduce.matches ? 0 : .035 * Math.sin(age / 110) * Math.exp(-age / 900)));
+    const scale = 1 + amount * ((isPetra ? .10 : .20) + (reduce.matches ? 0 : .035 * Math.sin(age / 110) * Math.exp(-age / 900)));
     const scaleY = 1 + (scale - 1) * .45;
     const tilt = bigHead && !reduce.matches ? amount * 3 * Math.sin(age / 180) : 0;
-    $('head-rig').setAttribute('transform', `translate(296 377) rotate(${tilt}) scale(${scale} ${scaleY}) translate(-296 -377)`);
-    overlay.style.transformOrigin = '50.055% 42.503%';
+    const headPivotY = isPetra ? petraRig.headPivotY : 377;
+    $('head-rig').setAttribute('transform', `translate(296 ${headPivotY}) rotate(${tilt}) scale(${scale} ${scaleY}) translate(-296 -${headPivotY})`);
+    overlay.style.transformOrigin = isPetra ? `50.055% ${petraRig.headPivotY / 887 * 100}%` : '50.055% 42.503%';
     overlay.style.transform = `rotate(${tilt}deg) scale(${scale}, ${scaleY})`;
     overlay.dataset.headScale = String(scale);
     animateExpression();
@@ -156,15 +175,16 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
     }
     if (state === 'snacking') {
       const swallowed = Math.max(0, Math.min(1, (age - 1400) / 350));
-      const matrix = overlay.getScreenCTM().inverse().multiply($('pinch-hand').getScreenCTM());
+      const faceSpace = isPetra ? $('face-layout') : overlay;
+      const matrix = faceSpace.getScreenCTM().inverse().multiply($('pinch-hand').getScreenCTM());
       // The chip follows the pinch point through the exact same joint transforms.
-      const tip = new DOMPoint(1420, 330).matrixTransform(matrix);
+      const tip = new DOMPoint(isPetra ? petraRig.pinch[0] : 1420, isPetra ? petraRig.pinch[1] : 330).matrixTransform(matrix);
       $('snack').setAttribute('transform', `translate(${tip.x} ${tip.y}) scale(${.4 * (1 - swallowed)})`);
       $('snack').setAttribute('opacity', age < 1750 ? 1 - swallowed : 0);
       const chew = age > 1450 ? .7 + .3 * Math.cos((age - 1450) / 90) : 1;
       $('mouth').setAttribute('transform', `translate(296 319) scale(1 ${chew}) translate(-296 -319)`);
       $('caption').textContent = age > 2700 ? 'ENERGY +1 ⚡' : '';
-      $('caption').setAttribute('y', 100 - Math.max(0, age - 2700) / 60);
+      $('caption').setAttribute('y', (isPetra ? 24 : 100) - Math.max(0, age - 2700) / 60);
     }
   }
   function sparkles(progress, color, originX = 296, originY = 175) {
@@ -256,7 +276,75 @@ export function createPalAnimation(root, { onActionFinished } = {}) {
       $('head-effect').innerHTML = `<g transform="translate(393 150) scale(${scale})" fill="none" stroke="#ff6f87" stroke-width="5" stroke-linecap="round"><path d="M -17 -5 Q -5 -5 -5 -17 M 5 -17 Q 5 -5 17 -5 M 17 5 Q 5 5 5 17 M -5 17 Q -5 5 -17 5"/></g>`;
     }
   }
+  function animatePetraArms() {
+    const t = reduce.matches ? 2300 : age;
+    const ramp = (start, end) => ease(Math.max(0, Math.min(1, (t - start) / (end - start))));
+    const wave = state === 'greeting' || state === 'agree';
+    const scratch = ['thinking', 'confused', 'bored'].includes(state) && t < 4200;
+    const eating = state === 'snacking', drinking = state === 'drinking';
+    const [sx, sy] = petraRig.shoulder, [ex, ey] = petraRig.elbow, [wx, wy] = petraRig.wrist;
+    const upper = Math.hypot(ex - sx, ey - sy), lower = Math.hypot(wx - ex, wy - ey);
+    const upperRest = Math.atan2(ey - sy, ex - sx), lowerRest = Math.atan2(wy - ey, wx - ex);
+    let shoulder = 0, elbow = 0, wrist = 0, colaOpacity = 0;
+    // Solve the wrist in drawing coordinates. Positive bend keeps the elbow
+    // outside the torso when reaching the face rather than crossing the chest.
+    function reach(x, y, handAngle) {
+      const dx = x - sx, dy = y - sy;
+      const bend = Math.acos(Math.max(-1, Math.min(1, (dx * dx + dy * dy - upper * upper - lower * lower) / (2 * upper * lower))));
+      const heading = Math.atan2(dy, dx) - Math.atan2(lower * Math.sin(bend), upper + lower * Math.cos(bend));
+      shoulder = (heading - upperRest) * 180 / Math.PI;
+      shoulder = ((shoulder + 540) % 360) - 180;
+      elbow = (bend - lowerRest + upperRest) * 180 / Math.PI;
+      wrist = handAngle - shoulder - elbow;
+    }
+    if (wave) {
+      const lift = ramp(0, 750) * (1 - ramp(3350, 4200));
+      shoulder = 57 * lift;
+      elbow = (103 + 5 * Math.sin(t / 160)) * lift;
+      wrist = (18 + 7 * Math.sin(t / 160)) * lift;
+    }
+    if (scratch) {
+      const fold = ramp(0, 600) * (1 - ramp(3650, 4200));
+      const lift = ramp(250, 950) * (1 - ramp(3100, 3750));
+      const contact = ramp(950, 1150) * (1 - ramp(2850, 3100));
+      shoulder = 50 * lift;
+      elbow = 92 * fold + 4 * Math.sin(t / 115) * contact;
+      wrist = -6 * fold;
+    }
+    if (eating) {
+      const lift = ramp(0, 1250) * (1 - ramp(1850, 2850));
+      const angle = 195 * Math.PI / 180;
+      const dx = petraRig.pinch[0] - wx, dy = petraRig.pinch[1] - wy;
+      const targetX = petraRig.mouth[0] - (dx * Math.cos(angle) - dy * Math.sin(angle));
+      const targetY = petraRig.mouth[1] - (dx * Math.sin(angle) + dy * Math.cos(angle));
+      // Blend joint angles, avoiding the straight-arm singularity during lift.
+      reach(targetX, targetY, 195);
+      shoulder *= lift; elbow *= lift; wrist *= lift;
+    }
+    if (drinking) {
+      const hold = ramp(0, 450) * (1 - ramp(4700, 5150));
+      const sip = ramp(500, 1650) * (1 - ramp(3300, 4350));
+      const angle = -10 * Math.PI / 180;
+      const tipX = (1068 - 250) * .15, tipY = (133 - 1020) * .15;
+      const targetX = petraRig.mouth[0] - (tipX * Math.cos(angle) - tipY * Math.sin(angle));
+      const targetY = petraRig.mouth[1] - (tipX * Math.sin(angle) + tipY * Math.cos(angle));
+      reach(targetX, targetY, -10);
+      shoulder *= sip; elbow *= sip;
+      wrist = -10 * hold - shoulder - elbow;
+      colaOpacity = ramp(0, 450) * (1 - ramp(4400, 4700));
+    }
+    $('shoulder-joint').setAttribute('transform', `rotate(${shoulder} ${sx} ${sy})`);
+    $('elbow-joint').setAttribute('transform', `rotate(${elbow} ${ex} ${ey})`);
+    $('wrist-joint').setAttribute('transform', `rotate(${wrist} ${wx} ${wy})`);
+    $('cyber-cola').setAttribute('opacity', colaOpacity);
+    $('wave-hand').setAttribute('opacity', wave && state !== 'agree' ? 1 : 0);
+    $('ok-hand').setAttribute('opacity', state === 'agree' ? 1 : 0);
+    $('scratch-hand').setAttribute('opacity', scratch ? 1 : 0);
+    $('pinch-hand').setAttribute('opacity', eating ? 1 : 0);
+    $('rest-hand').setAttribute('opacity', drinking ? 1 - colaOpacity : wave || scratch || eating ? 0 : 1);
+  }
   function animateArms() {
+    if (isPetra) return animatePetraArms();
     let shoulder = 0, elbow = 0, wrist = 0;
     const wave = state === 'greeting' || state === 'agree';
     const okay = state === 'agree';

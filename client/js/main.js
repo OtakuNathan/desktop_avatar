@@ -22,6 +22,7 @@
   const chatClearScreen = document.getElementById("chat-clear-screen");
   const chatClearHistory = document.getElementById("chat-clear-history");
   const stateBadge = document.getElementById("state-badge");
+  const skinSwitch = document.getElementById("skin-switch");
   const avatarStage = document.getElementById("avatar-stage");
   const toolWorkspace = window.createToolWorkspace(document.getElementById("tool-workspace"), avatarStage);
   const checklistPanel = document.getElementById("checklist-panel");
@@ -127,13 +128,14 @@
     bootstrapLoading.className = "pal-webgl-loading pal-webgl-bootstrap-loading";
     bootstrapLoading.setAttribute("role", "status");
     bootstrapLoading.setAttribute("aria-live", "polite");
-    bootstrapLoading.textContent = "Loading Pal…";
+    bootstrapLoading.textContent = `Loading ${CFG.displayName || "Pal"}…`;
     avatarStage.appendChild(bootstrapLoading);
     try {
       const module = await (CFG.renderer === "raster" ? import("./pal-raster-avatar.js") : CFG.renderer === "svg" ? import("./pal-svg-avatar.js") : import("./pal-webgl-avatar.js"));
       bootstrapLoading.remove();
       await (CFG.renderer === "raster" ? module.initPalRasterAvatar : CFG.renderer === "svg" ? module.initPalSVGAvatar : module.initPalWebGLAvatar)({
         container: avatarStage,
+        skin: CFG.skin,
         modelPath: CFG.renderer === "webgl" ? await resolvePalModelPath() : undefined,
         onActionFinished: (state) => {
           if (systemFailures.length) { renderState(latestPalState); return; }
@@ -144,8 +146,8 @@
       });
       bindAvatarWhenReady();
     } catch (error) {
-      console.error("Pal renderer failed to initialize", error);
-      showHint(CFG.renderer !== "webgl" ? "Pal failed to load. Refresh the page to retry." : "Pal's local skin failed to load. Reinstall the model cache, then refresh the page.", true);
+      console.error("Avatar renderer failed to initialize", error);
+      showHint(CFG.renderer !== "webgl" ? `${CFG.displayName || "Avatar"} failed to load. Refresh the page to retry.` : "Pal's local skin failed to load. Reinstall the model cache, then refresh the page.", true);
     } finally {
       bootstrapLoading.remove();
     }
@@ -931,6 +933,18 @@
   }
 
   // ---------- 事件绑定 ----------
+  if (skinSwitch) {
+    const nextSkin = CFG.skin === "petra" ? "pal" : "petra";
+    const nextName = nextSkin === "petra" ? "Petra" : "Pal";
+    skinSwitch.textContent = `⇄ ${nextName}`;
+    skinSwitch.title = `切换到 ${nextName}`;
+    skinSwitch.setAttribute("aria-label", `切换到 ${nextName} 形象`);
+    skinSwitch.addEventListener("click", () => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("skin", nextSkin);
+      window.location.assign(url.href);
+    });
+  }
   chatSend.addEventListener("click", sendMessage);
   chatInput.addEventListener("compositionstart", () => { composing = true; });
   chatInput.addEventListener("compositionend", () => { composing = false; });

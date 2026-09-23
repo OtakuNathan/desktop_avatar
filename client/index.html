@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Desktop Companion</title>
-<script src="js/config.js?v=10"></script>
-<link rel="stylesheet" href="css/style.css?v=12">
+<script src="js/config.js?v=11"></script>
+<link rel="stylesheet" href="css/style.css?v=13">
 </head>
 <body>
   <div class="room-background" aria-hidden="true">
@@ -34,6 +34,7 @@
   <!-- 角色拥有独立舞台，不与聊天区叠放。选中的渲染器会把角色移入这里。 -->
   <aside id="avatar-stage" aria-label="妹妹的桌面形象">
     <div id="state-badge" class="state-badge">standby</div>
+    <button id="skin-switch" class="skin-switch" type="button"></button>
     <div class="avatar-work-stack">
     <section id="checklist-panel" class="checklist-panel hidden" aria-live="polite">
       <div class="checklist-header">
@@ -54,6 +55,6 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="js/tool-workspace.js?v=1"></script>
-  <script src="js/main.js?v=13"></script>
+  <script src="js/main.js?v=14"></script>
 </body>
 </html>

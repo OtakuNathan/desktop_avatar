@@ -28,6 +28,29 @@ const AVATAR_SKINS = Object.freeze({
       checklistTitle: "In progress",
     }),
   }),
+  petra: Object.freeze({
+    skin: "petra",
+    renderer: "raster",
+    title: "Petra Desktop Companion",
+    displayName: "Petra",
+    documentLanguage: "zh-CN",
+    messageBeepEnabled: true,
+    messageBeepFrequencyHz: 740,
+    messageBeepVolume: 0.04,
+    display: Object.freeze({ width: 350, height: 385, hOffset: 0, vOffset: -6 }),
+    ui: Object.freeze({
+      chatAriaLabel: "和 Petra 聊天",
+      avatarAriaLabel: "Petra 桌面形象",
+      inputPlaceholder: "和 Petra 说点什么…（Shift+Enter 换行）",
+      send: "发送",
+      clearView: "清屏",
+      clearViewTitle: "只清空当前画面，不删除记录",
+      clearHistory: "清空记录",
+      clearHistoryTitle: "永久删除桌宠聊天记录",
+      closeTitle: "关闭聊天框",
+      checklistTitle: "正在做",
+    }),
+  }),
 });
 
 const selectedSkin = requestedSkin === "pal2d"

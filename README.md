@@ -66,6 +66,11 @@ desktop_avatar/
 小样与正式桌宠共用动画代码，状态仍由 sidecar 驱动，临时表情完成后回报原始状态名称。
 系统开启减少动态效果时显示静态表情，完成回报仍正常发出；隐藏页面暂停动画。
 
+`/?skin=petra` 显示 Petra 的猫耳绒帽、短手短腿站姿和暖色房间，使用概念图风格的青白色圆眼、睫毛和粉色腮红，共享 Pal 的表情状态机与 WebSocket 协议；手臂与独立手势素材使用 Petra 自己的关节坐标。聊天面板采用蓝色用户气泡、绿色 Petra 气泡和半透明背景。
+角色舞台右上角的按钮可在 Pal 和 Petra 间切换，并保留 URL 中的其他参数。
+皮肤选择只影响当前浏览器的外观和文案；连接到哪个助手、聊天历史和状态由打开页面的 channel endpoint 决定。
+Petra 的素材说明见 [Petra 位图](client/assets/model/petra-raster/README.md)。
+
 `/?skin=pal3d` 保留原来的离线 Three.js/WebGL 模型，`/?skin=pal2d` 保留旧的轻量 SVG 机器人。
 可选 ST7789 镜像仍需使用上述旧 renderer；新分层 renderer 尚不支持该镜像的单 canvas 捕获。
 所有形象沿用聊天、工具工作区及消息 beep；首次用户交互前遵守浏览器自动播放限制。

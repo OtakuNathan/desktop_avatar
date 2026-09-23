@@ -4,3 +4,5 @@ __pycache__/
 *.py[cod]
 dist/
 /desktop_avatar.zip
+
+/previews/

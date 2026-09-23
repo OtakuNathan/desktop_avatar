@@ -1,5 +1,5 @@
 const assets = new URL("../assets/model/pal-raster/", import.meta.url).href;
-const colaHandArtwork = `<g id="cyber-cola" opacity="0" transform="translate(155 575) scale(.1) translate(-250 -1020)">
+export const colaHandArtwork = `<g id="cyber-cola" opacity="0" transform="translate(155 575) scale(.1) translate(-250 -1020)">
   <defs><clipPath id="cola-hand-cut"><path d="M 551 249 Q 582 225 774 262 L 812 143 Q 816 111 848 81 Q 875 55 916 63 L 1072 105 Q 1092 111 1086 137 Q 1082 165 1061 160 L 924 122 Q 886 111 871 140 L 822 285 Q 893 299 916 315 Q 922 323 916 340 L 923 375 Q 939 410 931 450 L 847 990 Q 842 1047 817 1059 L 786 1074 Q 780 1094 755 1097 Q 589 1097 466 1044 Q 450 1037 447 1024 L 424 997 Q 399 1054 362 1076 Q 335 1091 304 1084 Q 258 1083 219 1023 Q 196 990 198 961 L 199 936 Q 224 884 267 839 Q 282 824 297 820 Q 279 774 290 723 Q 296 685 321 663 Q 308 640 314 602 Q 323 564 360 544 Q 345 521 354 479 Q 363 438 396 424 Q 440 406 482 421 L 491 368 Q 498 342 518 316 L 549 271 Q 548 258 551 249 Z"/></clipPath></defs>
   <image href="__ASSETS__cola-hand.png?v=2" width="1254" height="1254" clip-path="url(#cola-hand-cut)"/>
 </g>`;

@@ -53,6 +53,16 @@ def test_pal_skin_selects_raster_and_notification_beep() -> None:
     assert config["messageBeepEnabled"] is True
 
 
+def test_petra_skin_selects_shared_raster_renderer_and_own_ui() -> None:
+    loaded = _load_config("http://127.0.0.1:8765/?skin=petra")
+    config = loaded["config"]
+    assert loaded["dataset"] == {"avatarSkin": "petra"}
+    assert loaded["lang"] == "zh-CN"
+    assert config["renderer"] == "raster"
+    assert config["displayName"] == "Petra"
+    assert "Petra" in config["ui"]["inputPlaceholder"]
+
+
 def test_pal_webgl_renderer_and_vendored_runtime_are_packaged() -> None:
     renderer = ROOT / "client/js/pal-webgl-avatar.js"
     source = renderer.read_text(encoding="utf-8")

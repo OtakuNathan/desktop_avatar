@@ -7,6 +7,70 @@ from pathlib import Path
 import pytest
 
 
+def test_petra_skin_and_switch_keep_shared_actions():
+    api = pytest.importorskip('playwright.sync_api')
+    root = Path(__file__).resolve().parents[1] / 'client'
+    class Handler(SimpleHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+    server = ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Handler, directory=str(root)))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with api.sync_playwright() as p:
+            if not Path(p.chromium.executable_path).exists():
+                pytest.skip('Playwright Chromium is not installed')
+            browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
+            try:
+                page = browser.new_page(viewport={'width': 1280, 'height': 850})
+                errors, sockets, requests = [], [], []
+                page.on('pageerror', lambda error: errors.append(str(error)))
+                page.on('request', lambda request: requests.append(request.url))
+                page.route_web_socket('**', lambda socket: sockets.append(socket))
+                url = f'http://127.0.0.1:{server.server_port}/?skin=petra&preview=1'
+                page.goto(url)
+                page.wait_for_function('window.PalRasterAvatar?.motionReady()')
+                assert page.locator('#pal-raster-widget').get_attribute('data-skin') == 'petra'
+                assert any('/petra-raster/soft-body.png' in request for request in requests)
+                assert any('/petra-raster/standing-character.png' in request for request in requests)
+                assert not any('/pal-raster/arm-texture.png' in request for request in requests)
+                assert any('/petra-raster/gesture-hands.png' in request for request in requests)
+                # Facial landmarks must remain inside the new screen, in body coordinates.
+                landmarks = page.evaluate("""() => {
+                    const base = document.querySelector('.base').getScreenCTM().inverse();
+                    const face = document.querySelector('#face-layout').getScreenCTM();
+                    return [[236,279],[356,279],[296,318]].map(([x,y]) => {
+                        const p = new DOMPoint(x,y).matrixTransform(base.multiply(face));
+                        return [p.x,p.y];
+                    });
+                }""")
+                assert all(300 < x < 720 and 490 < y < 735 for x, y in landmarks)
+                assert page.locator('#chat-input').get_attribute('placeholder').startswith('和 Petra')
+                sockets[-1].send(json.dumps({'type': 'avatar_state', 'state': 'greeting'}))
+                page.wait_for_function('document.querySelector("#pal-raster-widget").dataset.avatarState === "greeting"')
+                page.wait_for_function('document.querySelector("#wave-hand").getAttribute("opacity") === "1"')
+                sockets[-1].send(json.dumps({'type': 'avatar_state', 'state': 'drinking'}))
+                page.wait_for_function('document.querySelector("#pal-raster-widget").dataset.avatarState === "drinking"')
+                page.wait_for_timeout(2100)
+                # The rigid hand/prop sprite must deliver its straw to the mouth.
+                distance = page.evaluate("""() => {
+                    const tip = new DOMPoint(1068,133).matrixTransform(document.querySelector('#cyber-cola').getScreenCTM());
+                    const mouth = new DOMPoint(296,318).matrixTransform(document.querySelector('#face-layout').getScreenCTM());
+                    return Math.hypot(tip.x-mouth.x,tip.y-mouth.y);
+                }""")
+                assert distance < 2
+                assert page.locator('#rest-hand').get_attribute('opacity') == '0'
+                page.locator('#skin-switch').click()
+                page.wait_for_function('document.documentElement.dataset.avatarSkin === "pal"')
+                page.wait_for_function('window.PalRasterAvatar?.motionReady()')
+                assert page.locator('#pal-raster-widget').get_attribute('data-skin') == 'pal'
+                assert 'preview=1' in page.url
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+
+
 def test_raster_channel_lifecycle_and_preview(tmp_path):
     api = pytest.importorskip('playwright.sync_api')
     root = Path(__file__).resolve().parents[1] / 'client'

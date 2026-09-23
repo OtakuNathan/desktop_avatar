@@ -69,6 +69,23 @@ body {
   background: rgba(121, 85, 72, 0.84);
 }
 
+.skin-switch {
+  position: absolute;
+  top: 12px;
+  right: 10px;
+  z-index: 35;
+  padding: 5px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 999px;
+  background: rgba(20, 34, 50, 0.78);
+  color: #fff;
+  font: 600 12px/1.2 system-ui, sans-serif;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.skin-switch:hover { filter: brightness(1.18); }
+.skin-switch:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
 /* 聊天面板 */
 .chat-panel {
   position: relative;
@@ -481,6 +498,51 @@ html[data-avatar-skin="pal"] .chat-input:focus {
   border-color: #1fbce9;
   background: rgba(11, 31, 48, 1);
 }
+
+html[data-avatar-skin="petra"] {
+  color-scheme: light;
+  --bubble-avatar: #d8f2dc;
+  --bubble-user: #dceeff;
+  --accent: #cc7589;
+  --text: #593b45;
+}
+html[data-avatar-skin="petra"] body { background-color: #f8dfcc; }
+html[data-avatar-skin="petra"] .chat-panel {
+  background: rgba(255, 247, 241, 0.55);
+  backdrop-filter: blur(5px);
+  border: 1px solid rgba(211, 137, 151, 0.34);
+  box-shadow: 0 16px 48px rgba(121, 74, 66, 0.22);
+}
+html[data-avatar-skin="petra"] .chat-header {
+  background: linear-gradient(90deg, #b9657e, #e49998);
+}
+html[data-avatar-skin="petra"] .chat-messages { background: transparent; }
+html[data-avatar-skin="petra"] .bubble.avatar { border: 1px solid #acd6b4; color: #254b32; }
+html[data-avatar-skin="petra"] .bubble.user { border: 1px solid #aecfe9; color: #254761; }
+html[data-avatar-skin="petra"] .chat-input-row { background: rgba(255, 244, 239, 0.60); }
+html[data-avatar-skin="petra"] .chat-input {
+  background: #fffaf7;
+  border-color: #ddb5b5;
+  color: #573a42;
+}
+html[data-avatar-skin="petra"] .chat-input:focus { border-color: #cc7589; }
+html[data-avatar-skin="petra"] #avatar-stage {
+  background: linear-gradient(180deg, rgba(255, 250, 246, 0.57), rgba(255, 225, 214, 0.35));
+  border-color: rgba(255, 241, 232, 0.78);
+  box-shadow: 0 14px 38px rgba(124, 75, 73, 0.17);
+}
+html[data-avatar-skin="petra"] .skin-switch {
+  background: rgba(175, 93, 121, 0.9);
+}
+html[data-avatar-skin="petra"] .checklist-panel,
+html[data-avatar-skin="petra"] .tool-workspace {
+  border-color: rgba(214, 153, 158, 0.52);
+  background: rgba(255, 247, 242, 0.94);
+  color: #6b4950;
+}
+html[data-avatar-skin="petra"] .checklist-progress { background: #f7dce3; color: #a34f70; }
+html[data-avatar-skin="petra"] .checklist-item.in-progress { color: #a34f70; }
+html[data-avatar-skin="petra"] .tool-call-status.background { color: #a34f70; }
 html[data-avatar-skin="pal"] #avatar-stage {
   border-color: rgba(70, 199, 244, 0.2);
   background:
@@ -841,6 +903,12 @@ html[data-avatar-skin="pal"] .tool-call-status.failed, html[data-avatar-skin="pa
   transform: translate(-50%, -50%);
   background: url("../assets/background/pal-night-room.png") center / 100% 100% no-repeat;
 }
+html[data-avatar-skin="petra"] .room-background { background: #f8dfcc; }
+html[data-avatar-skin="petra"] .room-scene {
+  background-image: url("../assets/background/cozy-room.png");
+}
+html[data-avatar-skin="petra"] .room-screen-glow,
+html[data-avatar-skin="petra"] .room-screen-reflection { display: none; }
 .room-screen-glow {
   position: absolute; left: 28.53%; top: 23.80%; width: 16.51%; height: 16.26%;
   clip-path: polygon(0 0, 100% 2.6%, 99.6% 97.4%, 0.4% 100%);
@@ -873,6 +941,7 @@ html[data-avatar-skin="pal"] .tool-call-status.failed, html[data-avatar-skin="pa
 #pal-raster-widget .robot{position:absolute;inset:0 0 auto;aspect-ratio:591.333/887;transform-origin:50% 70%;animation:pal-raster-breathe 4.8s ease-in-out infinite}
 #pal-raster-widget :is(.base,.arm-overlay,.eye-overlay){position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 #pal-raster-widget.paused .robot{animation-play-state:paused}
+#pal-raster-widget[data-skin="petra"]{aspect-ratio:591.333/887}
 @keyframes pal-raster-breathe{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.004)}}
 @media(prefers-reduced-motion:reduce){#pal-raster-widget .robot{animation:none}}
 
@@ -883,5 +952,10 @@ html[data-avatar-skin="pal"] .tool-call-status.failed, html[data-avatar-skin="pa
 
 .interaction-item { margin: 0.8em 0; }
 .interaction-item-text { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+
+@media (max-width: 600px) {
+  .skin-switch { top: 46px; right: 8px; }
+  .avatar-work-stack { top: 84px; }
+}
 .interaction-actions label { display: block; width: 100%; }
 .interaction-actions textarea { display: block; width: 100%; min-height: 10em; box-sizing: border-box; }
