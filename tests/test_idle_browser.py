@@ -99,6 +99,10 @@ def test_idle_variety_cola_and_preemption():
             # One painted hand/can/straw follows the wrist as a rigid attachment.
             # The arm brings the fixed straw tip to the mouth; the prop never slides.
             page.emulate_media(reduced_motion='no-preference')
+            # Wait for the media-query listener to resume the animation rig.
+            page.wait_for_function(
+                "!document.querySelector('#pal-raster-widget').classList.contains('paused')"
+            )
             receive({'type': 'avatar_state', 'state': 'drinking'})
             page.clock.run_for(800)
             hand = page.locator('#cyber-cola')

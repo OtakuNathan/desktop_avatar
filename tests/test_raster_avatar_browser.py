@@ -137,12 +137,18 @@ def test_raster_channel_lifecycle_and_preview(tmp_path):
                 state('working')
                 assert float(page.locator('.eye-overlay').get_attribute('data-head-scale')) == 1
                 page.emulate_media(reduced_motion='reduce')
+                page.wait_for_function(
+                    "document.querySelector('#pal-raster-widget').classList.contains('paused')"
+                )
                 state('panic')
                 assert float(page.locator('.eye-overlay').get_attribute('data-head-scale')) == 1.2
                 page.wait_for_timeout(2800)
                 assert {'type': 'avatar_action_finished', 'state': 'panic'} in sent
                 # Independent expressions survive the WebSocket/main/renderer pipeline.
                 page.emulate_media(reduced_motion='no-preference')
+                page.wait_for_function(
+                    "!document.querySelector('#pal-raster-widget').classList.contains('paused')"
+                )
                 for name, selector in [('error', '.crash-eye'), ('shy', '.blush'),
                                        ('awkward', '.cookie-eye'), ('crying', '.tear'),
                                        ('bored', '#scratch-hand'), ('gloomy', '.gloom'), ('celebrate', '.firework'), ('agree', '#ok-hand')]:
