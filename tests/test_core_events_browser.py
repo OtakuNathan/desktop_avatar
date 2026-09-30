@@ -74,6 +74,11 @@ def test_failure_display_recovery_and_thinking_hand_reset():
             receive({'type':'runtime_state','payload':{'sleeping':False,'failures':[],'safe_modes':[]}})
 
             page.emulate_media(reduced_motion='no-preference')
+            # Media-query change events are asynchronous. Wait for the rig to
+            # unpause before advancing its virtual animation clock.
+            page.wait_for_function(
+                "!document.querySelector('#pal-raster-widget').classList.contains('paused')"
+            )
             receive({'type':'avatar_state','state':'thinking'})
             page.clock.run_for(1300)
             assert page.locator('#scratch-hand').get_attribute('opacity') == '1'
