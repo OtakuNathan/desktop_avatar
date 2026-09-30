@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from pathlib import Path
+from pal.plugins.contracts import PluginBuildContext
 
 from desktop_avatar_emotion_introspection import register_with_core
 
 
-def build_plugin(*, plugin_dir: Path):
+def build_plugin(context: PluginBuildContext):
+    plugin_dir = context.plugin_dir
+    if plugin_dir is None:
+        raise ValueError("plugin_dir is required")
+
     class DesktopAvatarEmotionBundle:
         plugin_id = "desktop_avatar_emotion"
         version = "0.1.13"
