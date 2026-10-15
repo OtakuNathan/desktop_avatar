@@ -47,7 +47,7 @@ desktop_avatar/
 │   ├── provider.toml          # provider 清单
 │   ├── runtime.py             # provider 声明 + endpoint + sidecar 管理
 │   └── sidecar.py             # WS 服务端 + 消息桥 + 自治状态机
-├── plugin/                    # 配套 show_emotion 工具（不依赖 OLED）
+├── plugin/                    # 情绪渲染端（由 Pal emotion 协调广播）
 │   ├── plugin.toml
 │   ├── runtime.py
 │   └── desktop_avatar_emotion_introspection.py
@@ -136,7 +136,7 @@ mkdir -p <runtime-root>/channel/providers/desktop_avatar
 cp server/{provider.toml,runtime.py,sidecar.py} <runtime-root>/channel/providers/desktop_avatar/
 cp -a client <runtime-root>/channel/providers/desktop_avatar/client
 
-# 安装配套的独立 show_emotion 插件
+# 安装配套的情绪渲染插件（依赖新版 Pal 的 emotion 插件）
 mkdir -p <runtime-root>/plugins/community/desktop_avatar_emotion
 cp plugin/{plugin.toml,runtime.py,desktop_avatar_emotion_introspection.py} \
   <runtime-root>/plugins/community/desktop_avatar_emotion/
@@ -264,3 +264,8 @@ Pal 的 compact 与 Bunshin 提案使用同一张审核卡。逐条接受、跳�
 浏览器只发送服务端提供的不透明按钮 token 和声明的 input_values，不自行构造记忆写入请求。sidecar 保留字段文本和请求 ID，通过 Socket channel 控制路径转发，字段修改不进入聊天历史。
 
 此功能依赖支持 revision/items/inputs 的 Pal。更新桌宠需安装 channel 文件并重载 provider、刷新页面；配套 Pal resident Memory/Core 更改需要外部完整重启。
+
+情绪插件现在向独立的 Pal `emotion` 协调插件注册渲染端，不再单独发布工具。
+`show_emotion(emotion)` 广播到全部已挂载且启用的 desktop endpoint，和 face 共用词表并集；
+不支持的情绪跳过，`sleeping` 在本端映射到 `sleepy`。调用不带 duration，动画时长与活动恢复由 runtime 管理。
+源码和安装文件需分别更新；未更新 Pal 协调插件时不能单独激活此新版渲染插件。

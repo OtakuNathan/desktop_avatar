@@ -4,3 +4,5 @@ version = "0.1.13"
 enabled_by_default = true
 lifecycle_protocol = "raii.v1"
 module_id = "desktop_avatar_emotion"
+requires_plugins = ["emotion"]
+requires_ports = ["channel:channel", "emotion:emotion"]

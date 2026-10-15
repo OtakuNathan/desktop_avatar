@@ -15,9 +15,8 @@ def build_plugin(context: PluginBuildContext):
         version = "0.1.13"
 
         # raii.v1: the plugin host requires start(scope) and rejects a bundle
-        # that exposes register_with_core as its own surface. This mirrors the
-        # oled_status / st7789_face / eye entrypoints.
+        # that registers renderer contributions with its generation scope.
         def start(self, scope):
-            return register_with_core(scope.context, plugin_dir=plugin_dir)
+            return register_with_core(scope.context, plugin_dir=plugin_dir, scope=scope)
 
     return DesktopAvatarEmotionBundle()
