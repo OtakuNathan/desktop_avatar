@@ -87,13 +87,15 @@ def test_pal_webgl_renderer_and_vendored_runtime_are_packaged() -> None:
     assert "scrollbar-width: none" in stylesheet
 
 
-def test_new_pal_actions_are_supported_end_to_end() -> None:
+def test_new_pal_actions_are_supported_end_to_end(monkeypatch) -> None:
+    import importlib
+
     states = {"laugh", "clap", "agree", "complain", "crying", "error"}
     sidecar = (ROOT / "server/sidecar.py").read_text(encoding="utf-8")
     runtime = (ROOT / "server/runtime.py").read_text(encoding="utf-8")
-    emotion = (ROOT / "plugin/desktop_avatar_emotion_introspection.py").read_text(
-        encoding="utf-8"
-    )
+    monkeypatch.syspath_prepend(str(ROOT / "plugin"))
+    emotion = importlib.import_module("desktop_avatar_emotion_introspection")
+    assert states <= emotion.SUPPORTED_EMOTIONS
     client = (ROOT / "client/js/main.js").read_text(encoding="utf-8")
     assert "pal-webgl-bootstrap-loading" in client
     assert 'type: "avatar_action_finished"' in client
@@ -101,7 +103,6 @@ def test_new_pal_actions_are_supported_end_to_end() -> None:
         quoted = f'"{state}"'
         assert quoted in sidecar
         assert quoted in runtime
-        assert quoted in emotion
         assert f"{state}:" in client
 
 
