@@ -6,8 +6,8 @@
 
 - 确认实际 runtime root，不把 `~/.pal` 当作所有实例的固定位置。
 - 更新前比较源码与安装目录，保留运行目录中的独立修改。只改 channel 时用 `python install.py --runtime-root <root> --component channel --force`，不要顺便覆盖 emotion 插件。
-- 安装器只复制并校验文件。已有 provider 的代码更新用 `channel_reload_provider(provider_id="desktop_avatar")` 激活；`channel_restart_endpoint` 只重建连接，不替换 provider 代码。新 provider 使用 rescan/attach 路径。
-- emotion 插件更新后用 `plugin_attach` 重载其 generation；有 manifest 变更时先 rescan。不要因“插件是 builtin”就默认重启 Pal。
+- 安装器只复制并校验文件。已有 provider 的代码更新用 `manage_plugin(name="desktop_avatar", operation="reload")` 激活；`manage_channel_endpoint(name=..., operation="restart")` 只重建连接，不替换 provider 代码。新 provider 使用 `rescan_plugins` 发现后，通过 `manage_plugin` 的 attach 或 enable 加载。
+- emotion 插件更新后用 `manage_plugin(name="desktop_avatar_emotion", operation="reload")` 重载其 generation；有 manifest 变更时先 `rescan_plugins`。attach 保留已加载实例。不要因“插件是 builtin”就默认重启 Pal。
 - 热重载会短暂重建连接；检查生命周期返回值、endpoint health 和 HTTP 资源，再提示用户刷新浏览器。不要把安装完成当作热重载完成。
 - Pal 正忙时不追加激活消息、不强制中断；记录已安装和待确认的激活状态。
 

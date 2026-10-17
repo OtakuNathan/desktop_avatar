@@ -102,9 +102,11 @@ python install.py --runtime-root /path/to/runtime --component emotion
 ```
 
 更新已有安装时显式加 `--force`。安装器只复制文件，不会操作正在运行的 Pal；随后通过 Pal 的
-生命周期能力热加载：新 provider 使用 `channel_provider_rescan` / endpoint attach；已有 provider
-代码更新使用 `channel_reload_provider(name="desktop_avatar")`。插件使用
-`plugin_rescan` / `plugin_attach`。仅重启 endpoint 不会重载 provider 代码。
+生命周期能力热加载：新 provider 使用 `rescan_plugins` 发现后，以 `manage_plugin` 的
+attach 或 enable 加载；已有 provider 代码更新使用
+`manage_plugin(name="desktop_avatar", operation="reload")`。情绪插件更新使用
+`manage_plugin(name="desktop_avatar_emotion", operation="reload")`。
+attach 保留已加载实例；仅用 `manage_channel_endpoint(operation="restart")` 重启 endpoint 不会重载 provider 代码。
 安装采用逐文件原子替换，保留安装目录中不属于发布包的文件；成功后会生成
 `.desktop-avatar-install.json`，记录版本、安装文件和 SHA-256，并立即核验安装结果。
 已知由旧版本安装、但已经退役的入口文件会在 `--force` 更新时一并清理。
@@ -141,7 +143,7 @@ mkdir -p <runtime-root>/plugins/community/desktop_avatar_emotion
 cp plugin/{plugin.toml,runtime.py,desktop_avatar_emotion_introspection.py} \
   <runtime-root>/plugins/community/desktop_avatar_emotion/
 
-# 2. 分别热加载 channel provider 与 plugin（已有 provider 更新用 channel_reload_provider）
+# 2. 分别用 manage_plugin 的 reload 更新已有 channel provider 与 emotion plugin
 # 3. 注册 endpoint（Pal 内执行）：
 #    desktop_avatar / channel_kind=desktop_avatar / binding_key=<任意唯一键>
 #    binding_metadata: bind_host=0.0.0.0, bind_port=8765
