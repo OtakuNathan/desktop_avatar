@@ -889,6 +889,86 @@ class ChatHistoryStore:
             )
         self._commit()
 
+    @staticmethod
+    def _like_escape(value: str) -> str:
+        return (
+            str(value)
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        )
+
+    def store_completed_avatar_segments(
+        self,
+        turn_id: str,
+        segments: list[str],
+        *,
+        segment_closed_at_us: list[int] | None = None,
+    ) -> None:
+        """Persist one terminal chat projection as one row per visible bubble.
+
+        The first segment keeps the bare turn id; later segments use
+        ``<turn_id>#<n>`` so history pagination renders the same bubble
+        split the browser saw live, with rows ordered by the moment each
+        bubble closed.
+        """
+        normalized_turn_id = str(turn_id or "")
+        cleaned = [
+            str(segment or "")
+            for segment in segments
+            if str(segment or "").strip()
+        ]
+        if not normalized_turn_id or not cleaned:
+            return
+        user = self._connection.execute(
+            "SELECT 1 FROM chat_messages WHERE turn_id = ? AND sender = 'user' LIMIT 1",
+            (normalized_turn_id,),
+        ).fetchone()
+        if user is None:
+            return
+        self._connection.execute(
+            "DELETE FROM chat_messages "
+            "WHERE sender = 'avatar' AND (turn_id = ? OR turn_id LIKE ? ESCAPE '\\')",
+            (normalized_turn_id, self._like_escape(normalized_turn_id) + "#%"),
+        )
+        fallback_timestamp_us = time.time_ns() // 1_000
+        previous_timestamp_us = 0
+        for index, text in enumerate(cleaned):
+            closed_at_us = (
+                segment_closed_at_us[index]
+                if segment_closed_at_us and index < len(segment_closed_at_us)
+                else fallback_timestamp_us
+            )
+            # Rows keep their real close times so an interjected user message
+            # stays between segment rows; only intra-call order is enforced.
+            timestamp_us = max(int(closed_at_us), previous_timestamp_us + 1)
+            previous_timestamp_us = timestamp_us
+            segment_turn_id = (
+                normalized_turn_id if index == 0 else f"{normalized_turn_id}#{index + 1}"
+            )
+            self._connection.execute(
+                "INSERT INTO chat_messages(turn_id, sender, content, created_at_us, complete) "
+                "VALUES (?, 'avatar', ?, ?, 1)",
+                (segment_turn_id, text, timestamp_us),
+            )
+        self._last_timestamp_us = max(self._last_timestamp_us, previous_timestamp_us)
+        self._commit()
+
+    def append_standalone_avatar(self, turn_id: str, content: str) -> None:
+        """Persist one Pal-initiated chat message outside any browser turn."""
+        normalized_turn_id = str(turn_id or "")
+        text = str(content or "")
+        if not normalized_turn_id or not text:
+            return
+        timestamp_us = max(time.time_ns() // 1_000, self._last_timestamp_us + 1)
+        self._last_timestamp_us = timestamp_us
+        self._connection.execute(
+            "INSERT INTO chat_messages(turn_id, sender, content, created_at_us, complete) "
+            "VALUES (?, 'avatar', ?, ?, 1)",
+            (normalized_turn_id, text, timestamp_us),
+        )
+        self._commit()
+
     def active_replies(self) -> dict[str, str]:
         rows = self._connection.execute(
             "SELECT turn_id, content FROM chat_messages "
@@ -1119,9 +1199,11 @@ class ChatHistoryStore:
         self._connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
     def delete_turn(self, turn_id: str) -> None:
+        normalized_turn_id = str(turn_id or "")
         self._connection.execute(
-            "DELETE FROM chat_messages WHERE turn_id = ?",
-            (str(turn_id or ""),),
+            "DELETE FROM chat_messages WHERE turn_id = ? "
+            "OR turn_id LIKE ? ESCAPE '\\'",
+            (normalized_turn_id, self._like_escape(normalized_turn_id) + "#%"),
         )
         self._commit()
 
@@ -1164,6 +1246,13 @@ class AvatarWebSocketServer:
         )
         self._started_replies: set[str] = set()
         self._segment_break_pending: set[str] = set()
+        self._reply_segments: dict[str, list[str]] = {
+            request_id: ["".join(parts)]
+            for request_id, parts in self._reply_parts.items()
+        }
+        self._reply_display_seq: dict[str, int] = {}
+        self._reply_open_display: dict[str, str] = {}
+        self._reply_segment_closed_at: dict[str, list[int]] = {}
         self._ingress_queue: asyncio.Queue[PendingIngress] = asyncio.Queue()
         self._ingress_retry_delays = tuple(ingress_retry_delays)
         self._captured_frames: list[dict[str, Any]] | None = None
@@ -1206,12 +1295,36 @@ class AvatarWebSocketServer:
             if self._history.in_pal_delivery_transaction:
                 raise
 
-    def _persist_terminal_reply(self, request_id: str, content: str) -> str:
+    def _persist_terminal_reply(
+        self,
+        request_id: str,
+        content: str,
+        segments: list[str],
+        *,
+        segment_closed_at_us: list[int] | None = None,
+    ) -> str:
         if not request_id:
+            # Pal-initiated pushes carry no browser turn: persist them as
+            # standalone avatar rows so refreshes do not lose them.
+            text = str(content or "")
+            if text:
+                turn_id = f"push_{self._history_generation}_{os.urandom(8).hex()}"
+                self._persist_projection(
+                    lambda: self._history.append_standalone_avatar(turn_id, text)
+                )
             return ""
         try:
             if request_id.startswith("chat_"):
-                self._history.store_completed_avatar(request_id, content)
+                cleaned = [
+                    str(segment or "")
+                    for segment in segments
+                    if str(segment or "").strip()
+                ]
+                self._history.store_completed_avatar_segments(
+                    request_id,
+                    cleaned or [content],
+                    segment_closed_at_us=segment_closed_at_us,
+                )
                 return ""
             return self._history.store_completed_control(request_id, content)
         except sqlite3.Error:
@@ -1541,6 +1654,24 @@ class AvatarWebSocketServer:
             lambda: self._channel.send_user_message(text, request_id)
         )
         if persist_history:
+            # The user interjected: seal whatever older turns are streaming
+            # BEFORE this message lands, so later text opens a fresh bubble
+            # below it and history keeps the same order.
+            for active_request_id in list(self._reply_segments):
+                if not active_request_id.startswith("chat_"):
+                    continue
+                open_display = self._reply_open_display.get(active_request_id, "")
+                current_text = (self._reply_segments.get(active_request_id) or [""])[-1]
+                if open_display and current_text.strip():
+                    await self.broadcast_chat("", event="done", message_id=open_display)
+                    self._reply_open_display[active_request_id] = ""
+                    self._reply_segment_closed_at.setdefault(active_request_id, []).append(
+                        time.time_ns() // 1_000
+                    )
+                    segments = self._reply_segments.setdefault(active_request_id, [])
+                    if not segments or segments[-1].strip():
+                        segments.append("")
+                    self._segment_break_pending.discard(active_request_id)
             with contextlib.suppress(sqlite3.Error):
                 self._history.append(request_id, "user", text)
             self._sm.on_client_message()
@@ -1615,26 +1746,52 @@ class AvatarWebSocketServer:
                 await self.broadcast_frame(payload)
             await self._channel.acknowledge_reply(reply)
 
-    async def _start_reply(self, request_id: str) -> None:
-        if not request_id or request_id in self._started_replies:
-            return
+    async def _display_segment(self, request_id: str, *, force_new: bool) -> str:
+        """Return the bubble message id of the current reply segment.
+
+        A reply keeps one bubble per visible text round; rotation seals the
+        previous bubble and announces the next display id
+        (``<request_id>``, then ``<request_id>#2``, ...).
+        """
+        if not request_id:
+            return ""
+        current = self._reply_open_display.get(request_id, "")
+        if current and not force_new:
+            return current
+        if current:
+            await self.broadcast_chat("", event="done", message_id=current)
+            self._reply_segment_closed_at.setdefault(request_id, []).append(
+                time.time_ns() // 1_000
+            )
+        sequence = self._reply_display_seq.get(request_id, 0) + 1
+        self._reply_display_seq[request_id] = sequence
+        current = request_id if sequence == 1 else f"{request_id}#{sequence}"
+        self._reply_open_display[request_id] = current
         self._started_replies.add(request_id)
-        await self.broadcast_chat("", event="start", message_id=request_id)
+        await self.broadcast_chat("", event="start", message_id=current)
+        return current
 
     def _mark_segment_break(self, request_id: str) -> None:
         if request_id and "".join(self._reply_parts.get(request_id, [])).strip():
             self._segment_break_pending.add(request_id)
 
-    def _apply_segment_break(self, request_id: str, text: str) -> str:
-        if request_id not in self._segment_break_pending:
-            return text
+    async def _append_reply_text(self, request_id: str, text: str) -> None:
+        """Append streamed text, rotating to a fresh bubble on segment breaks."""
+        force_new = (
+            request_id in self._segment_break_pending
+            and bool((self._reply_segments.get(request_id) or [""])[-1].strip())
+        )
         self._segment_break_pending.discard(request_id)
-        prior = "".join(self._reply_parts.get(request_id, []))
-        if not prior.strip() or not text.strip() or prior.endswith("\n\n") or text.startswith("\n\n"):
-            return text
-        if prior.endswith("\n") or text.startswith("\n"):
-            return "\n" + text
-        return "\n\n" + text
+        display_id = await self._display_segment(request_id, force_new=force_new)
+        self._reply_parts.setdefault(request_id, []).append(text)
+        segments = self._reply_segments.setdefault(request_id, [])
+        if force_new and segments and segments[-1].strip():
+            segments.append("")
+        if not segments:
+            segments.append("")
+        segments[-1] += text
+        if text:
+            await self.broadcast_chat(text, event="delta", message_id=display_id)
 
     async def _project_pal_reply(self, reply: dict[str, Any]) -> None:
         """Project one Pal frame without assuming responses are contiguous."""
@@ -1661,12 +1818,9 @@ class AvatarWebSocketServer:
             delta = str(reply.get("text") or "")
             if not delta:
                 return
-            delta = self._apply_segment_break(request_id, delta)
             if request_id.startswith("chat_"):
                 self._sm.on_reply_delta()
-            await self._start_reply(request_id)
-            self._reply_parts.setdefault(request_id, []).append(delta)
-            await self.broadcast_chat(delta, event="delta", message_id=request_id)
+            await self._append_reply_text(request_id, delta)
             return
         if rtype in {
             "interactive_open",
@@ -1694,9 +1848,7 @@ class AvatarWebSocketServer:
                 return
             fallback = str(reply.get("text") or "")
             if fallback:
-                await self._start_reply(request_id)
-                self._reply_parts.setdefault(request_id, []).append(fallback)
-                await self.broadcast_chat(fallback, event="delta", message_id=request_id)
+                await self._append_reply_text(request_id, fallback)
             return
         if rtype in {"tool_call", "op_tool_call"}:
             if request_id.startswith("chat_"):
@@ -1718,27 +1870,29 @@ class AvatarWebSocketServer:
             if final_text and final_text.startswith(existing_text):
                 missing_text = final_text[len(existing_text):]
                 if missing_text:
-                    await self._start_reply(request_id)
-                    self._reply_parts.setdefault(request_id, []).append(missing_text)
-                    await self.broadcast_chat(
-                        missing_text,
-                        event="delta",
-                        message_id=request_id,
-                    )
+                    await self._append_reply_text(request_id, missing_text)
             error_text = str(reply.get("error_text") or reply.get("text") or "").strip()
             if rtype in {"llm_error", "error"} and error_text:
-                error_text = self._apply_segment_break(request_id, error_text)
-                await self._start_reply(request_id)
-                self._reply_parts.setdefault(request_id, []).append(error_text)
-                await self.broadcast_chat(error_text, event="delta", message_id=request_id)
+                await self._append_reply_text(request_id, error_text)
             terminal_text = final_text or "".join(
                 self._reply_parts.get(request_id, [])
             )
+            if (self._reply_segments.get(request_id) or [""])[-1].strip():
+                self._reply_segment_closed_at.setdefault(request_id, []).append(
+                    time.time_ns() // 1_000
+                )
+            segments = self._reply_segments.get(request_id, [])
+            closed_at = self._reply_segment_closed_at.pop(request_id, [])
             browser_delivery_id = self._persist_terminal_reply(
                 request_id,
                 terminal_text,
+                segments,
+                segment_closed_at_us=closed_at,
             )
             self._reply_parts.pop(request_id, None)
+            self._reply_segments.pop(request_id, None)
+            self._reply_display_seq.pop(request_id, None)
+            open_display_id = self._reply_open_display.pop(request_id, "")
             self._segment_break_pending.discard(request_id)
             chat_reply = request_id.startswith("chat_")
             self._started_replies.discard(request_id)
@@ -1746,7 +1900,7 @@ class AvatarWebSocketServer:
                 await self.broadcast_chat(
                     "",
                     event="done",
-                    message_id=request_id,
+                    message_id=open_display_id or request_id,
                     delivery_id=browser_delivery_id,
                 )
             activity_end = self._tool_activity.finish_request(request_id)

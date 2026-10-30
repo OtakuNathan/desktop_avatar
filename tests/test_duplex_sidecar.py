@@ -664,7 +664,7 @@ def test_terminal_full_text_repairs_a_delta_lost_during_reattach(tmp_path: Path)
     asyncio.run(scenario())
 
 
-def test_visible_text_rounds_are_paragraph_separated_inside_one_bubble(tmp_path: Path) -> None:
+def test_visible_text_rounds_split_into_segment_bubbles_and_rows(tmp_path: Path) -> None:
     async def scenario() -> None:
         history = ChatHistoryStore(tmp_path / "history.sqlite3")
         request_id = "chat_0_multistep"
@@ -704,23 +704,128 @@ def test_visible_text_rounds_are_paragraph_separated_inside_one_bubble(tmp_path:
             "finish_reason": "stop",
         })
 
-        assert [item["text"] for item in history.page()["messages"]] == [
+        rows = history.page()["messages"]
+        assert [item["text"] for item in rows] == [
             "exercise the checklist",
-            "First checklist update.\n\nSecond update continues normally.",
+            "First checklist update.",
+            "Second update continues normally.",
+        ]
+        assert [row["turn_id"] for row in rows if row["sender"] == "avatar"] == [
+            request_id,
+            f"{request_id}#2",
         ]
         frames = [json.loads(frame) for frame in client.sent]
-        deltas = [
-            frame["text"]
+        events = [
+            (frame.get("event"), frame.get("message_id"))
             for frame in frames
-            if frame.get("type") == "chat_message" and frame.get("event") == "delta"
+            if frame.get("type") == "chat_message" and frame.get("sender") == "avatar"
         ]
-        assert deltas == [
-            "First checklist update.",
-            "\n\nSecond update",
-            " continues normally.",
+        assert events == [
+            ("start", request_id),
+            ("delta", request_id),
+            ("done", request_id),
+            ("start", f"{request_id}#2"),
+            ("delta", f"{request_id}#2"),
+            ("delta", f"{request_id}#2"),
+            ("done", f"{request_id}#2"),
         ]
-        assert sum(frame.get("event") == "start" for frame in frames) == 1
-        assert sum(frame.get("event") == "done" for frame in frames) == 1
+        history.close()
+
+    asyncio.run(scenario())
+
+
+def test_pal_pushed_messages_survive_refresh(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        path = tmp_path / "history.sqlite3"
+        history = ChatHistoryStore(path)
+        server = _server(history)
+        client = _WebSocket()
+        server._clients.add(client)
+
+        await server._project_pal_reply({
+            "type": "text_delta",
+            "request_id": "",
+            "text": "\\[ end' = end - t_{\\max} \\]",
+        })
+        await server._project_pal_reply({
+            "type": "done",
+            "request_id": "",
+            "finish_reason": "stop",
+        })
+
+        messages = history.page()["messages"]
+        assert [item["sender"] for item in messages] == ["avatar"]
+        assert messages[0]["text"] == "\\[ end' = end - t_{\\max} \\]"
+        assert messages[0]["turn_id"].startswith("push_")
+        assert messages[0]["complete"] is True
+        frames = [json.loads(frame) for frame in client.sent]
+        assert any(
+            frame.get("event") == "delta" and str(frame.get("text") or "").startswith("\\[ end'")
+            for frame in frames
+        )
+        history.close()
+
+        restored_history = ChatHistoryStore(path)
+        reloaded = restored_history.page()["messages"]
+        assert [item["text"] for item in reloaded] == ["\\[ end' = end - t_{\\max} \\]"]
+        restored_history.close()
+
+    asyncio.run(scenario())
+
+
+def test_user_interjection_moves_later_turn_text_below_the_new_bubble(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        history = ChatHistoryStore(tmp_path / "history.sqlite3")
+        channel = _Channel()
+        server = _server(history, channel)
+        client = _WebSocket()
+        server._clients.add(client)
+
+        first_turn = "chat_0_working"
+        history.append(first_turn, "user", "do the task")
+        await server._project_pal_reply({
+            "type": "text_delta",
+            "request_id": first_turn,
+            "text": "Working update.",
+        })
+
+        await server._dispatch_to_pal("hold on, a question")
+
+        await server._project_pal_reply({
+            "type": "text_delta",
+            "request_id": first_turn,
+            "text": "Post-interjection update.",
+        })
+        await server._project_pal_reply({
+            "type": "llm_done",
+            "request_id": first_turn,
+            "finish_reason": "stop",
+        })
+
+        rows = history.page()["messages"]
+        assert [item["text"] for item in rows] == [
+            "do the task",
+            "Working update.",
+            "hold on, a question",
+            "Post-interjection update.",
+        ]
+        frames = [json.loads(frame) for frame in client.sent]
+        events = [
+            (frame.get("sender"), frame.get("event"), frame.get("message_id"))
+            for frame in frames
+            if frame.get("type") == "chat_message"
+        ]
+        seal_index = next(
+            index for index, item in enumerate(events)
+            if item == ("avatar", "done", first_turn)
+        )
+        user_index = next(
+            index for index, item in enumerate(events)
+            if item[0] == "user" and item[1] == "message"
+        )
+        assert seal_index < user_index
+        assert ("avatar", "start", f"{first_turn}#2") in events
+        assert ("avatar", "delta", f"{first_turn}#2") in events
         history.close()
 
     asyncio.run(scenario())
