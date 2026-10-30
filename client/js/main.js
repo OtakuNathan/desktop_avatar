@@ -228,28 +228,30 @@
   }
 
   // ---------- 聊天 UI ----------
+  let chatMarkdownRenderer = null;
+  let chatMarkdownInitialized = false;
+
+  function getChatMarkdown() {
+    if (!chatMarkdownInitialized) {
+      chatMarkdownInitialized = true;
+      chatMarkdownRenderer = window.createChatMarkdown
+        ? window.createChatMarkdown(window.marked, window.DOMPurify, window.katex)
+        : null;
+    }
+    return chatMarkdownRenderer;
+  }
+
   function renderBubbleMarkdown(bubble, markdown) {
     const source = String(markdown || "");
     bubbleMarkdown.set(bubble, source);
-    if (!window.marked || !window.DOMPurify) {
+    const renderer = getChatMarkdown();
+    let html = null;
+    if (renderer) html = renderer.render(source);
+    if (html == null) {
       bubble.textContent = source;
       return;
     }
-    try {
-      const rendered = window.marked.parse(source, {
-        async: false,
-        breaks: true,
-        gfm: true,
-      });
-      bubble.innerHTML = window.DOMPurify.sanitize(rendered, {
-        USE_PROFILES: { html: true },
-        FORBID_TAGS: ["style", "form", "input", "button", "textarea", "select", "iframe", "object", "embed", "svg", "math"],
-        FORBID_ATTR: ["style"],
-      });
-    } catch (_error) {
-      bubble.textContent = source;
-      return;
-    }
+    bubble.innerHTML = html;
     bubble.querySelectorAll("a[href]").forEach((link) => {
       link.target = "_blank";
       link.rel = "noopener noreferrer";

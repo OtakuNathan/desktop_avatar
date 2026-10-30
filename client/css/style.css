@@ -959,3 +959,9 @@ html[data-avatar-skin="petra"] .room-screen-reflection { display: none; }
 }
 .interaction-actions label { display: block; width: 100%; }
 .interaction-actions textarea { display: block; width: 100%; min-height: 10em; box-sizing: border-box; }
+
+/* ---------- 聊天公式（KaTeX） ---------- */
+.bubble .katex { font-size: 1.05em; }
+.bubble .katex-display { margin: 0.35em 0; overflow-x: auto; overflow-y: hidden; }
+.bubble .katex-display > .katex { white-space: nowrap; }
+.bubble .katex-error { color: #c62828; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }

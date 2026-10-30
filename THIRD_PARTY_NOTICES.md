@@ -8,6 +8,9 @@ This package vendors browser dependencies so the ChromeOS client can run without
   `THIRD_PARTY_LICENSES/DOMPurify-3.1.6.txt`.
 - `three` 0.185.1 — MIT License. The bundled license is in
   `THIRD_PARTY_LICENSES/three-0.185.1-MIT.txt`.
+- `KaTeX` 0.16.22 — MIT License. The bundled license is in
+  `THIRD_PARTY_LICENSES/katex-0.16.22-MIT.md`. Only `dist/katex.min.js`, `dist/katex.min.css`
+  and the `woff2` fonts are vendored under `client/vendor/katex/`.
 
 The generated `client/assets/background/cozy-room.png` and `pal-night-room.png` are project-local artwork created for this client.
 
