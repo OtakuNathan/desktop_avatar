@@ -949,3 +949,53 @@ def test_interaction_field_values_survive_bounded_transport_retry(tmp_path):
             input_values={"value": value})
         assert channel.forms == [("batch", "r1b1", "same", {"value": value})] * 3
     asyncio.run(run())
+
+
+def test_voice_interjection_tracks_real_reply_and_ignores_tool_boundaries(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        history = ChatHistoryStore(tmp_path / "voice.sqlite3")
+        server = AvatarWebSocketServer(state_machine=_StateMachine(), state_queue=AvatarStateQueue(),
+                                      channel=_Channel(), history=history, loop=asyncio.get_running_loop())
+        ws = _WebSocket()
+        server._clients.add(ws)
+        await server._project_pal_reply({"type": "core_event", "topic": "turn.start", "payload": {
+            "turn_id": "turn-1", "reply_target": {"request_id": "chat_first"}}})
+        await server._project_pal_reply({"type": "core_event", "topic": "turn.input_admitted", "payload": {
+            "turn_id": "turn-1", "endpoint_id": "avatar", "reply_endpoint_id": "avatar",
+            "request_id": "chat_voice", "reply_request_id": "chat_first"}})
+        await server._project_pal_reply({"type": "text_delta", "request_id": "chat_first", "text": "Working"})
+        await server._project_pal_reply({"type": "done", "request_id": "chat_first", "finish_reason": "tool_calls"})
+        assert not any(json.loads(raw).get("type") == "reply_complete" for raw in ws.sent)
+        await server._project_pal_reply({"type": "text_delta", "request_id": "chat_first", "text": "Finished"})
+        await server._project_pal_reply({"type": "done", "request_id": "chat_first"})
+        complete = [json.loads(raw) for raw in ws.sent if json.loads(raw).get("type") == "reply_complete"]
+        assert len(complete) == 1
+        assert complete[0]["source_request_ids"] == ["chat_first", "chat_voice"]
+        assert complete[0]["text"] == "Finished"
+        assert complete[0]["turn_id"] == "turn-1"
+    asyncio.run(scenario())
+
+
+def test_client_message_id_deduplicates_across_store_reopen(tmp_path: Path) -> None:
+    path = tmp_path / "receipts.sqlite3"
+    first = ChatHistoryStore(path)
+    assert first.claim_client_message("phone-uuid", "hello", "chat_one") == ("chat_one", True)
+    second = ChatHistoryStore(path)
+    assert second.claim_client_message("phone-uuid", "hello", "chat_two") == ("chat_one", False)
+    import pytest
+    with pytest.raises(ValueError):
+        second.claim_client_message("phone-uuid", "different", "chat_three")
+
+
+def test_repeated_native_message_is_enqueued_once(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        history = ChatHistoryStore(tmp_path / "native.sqlite3")
+        server = AvatarWebSocketServer(state_machine=_StateMachine(), state_queue=AvatarStateQueue(),
+                                      channel=_Channel(), history=history, loop=asyncio.get_running_loop())
+        ws = _IncomingWebSocket([{"type": "chat_message", "client_message_id": "phone-id", "text": "hello"}] * 2)
+        await server.handle(ws)
+        assert server._ingress_queue.qsize() == 1
+        receipts = [json.loads(raw) for raw in ws.sent if json.loads(raw).get("type") == "chat_accepted"]
+        assert len(receipts) == 2
+        assert receipts[0]["request_id"] == receipts[1]["request_id"]
+    asyncio.run(scenario())

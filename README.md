@@ -276,3 +276,20 @@ Pal 的 compact 与 Bunshin 提案使用同一张审核卡。逐条接受、跳�
 `show_emotion(emotion)` 广播到全部已挂载且启用的 desktop endpoint，和 face 共用词表并集；
 不支持的情绪跳过，`sleeping` 在本端映射到 `sleepy`。调用不带 duration，动画时长与活动恢复由 runtime 管理。
 源码和安装文件需分别更新；未更新 Pal 协调插件时不能单独激活此新版渲染插件。
+
+### Android companion transport
+
+The shared client accepts an optional `window.PAL_NATIVE_TRANSPORT.open()`
+transport adapter with the WebSocket callbacks and `send`/`readyState` surface.
+The Android service owns the connection; its WebView renders the same resources.
+The browser default remains a direct WebSocket.
+
+Native clients may send `client_message_id` on `chat_message`; `chat_accepted`
+returns its server request id. Live `turn.start`/`turn.input_admitted` observations
+associate requests with actual reply owners. `reply_complete` is emitted only
+for a terminal reply (never for tool/compaction segment boundaries), with
+`request_id`, `turn_id`, `source_request_ids`, `status`, and final segment `text`.
+History pages do not replay this event. Missing association disables automatic
+speech; observation loss never causes another Pal turn. Existing clients ignore
+the additional frames. Provider changes require normal installation and reload;
+the new Core observation requires external host activation separately.

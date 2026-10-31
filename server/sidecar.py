@@ -692,6 +692,10 @@ class ChatHistoryStore:
             "ON chat_messages(turn_id, created_at_us, id)"
         )
         self._connection.execute(
+            "CREATE TABLE IF NOT EXISTS client_message_receipts ("
+            "client_id TEXT PRIMARY KEY, text_hash TEXT NOT NULL, request_id TEXT NOT NULL)"
+        )
+        self._connection.execute(
             "CREATE TABLE IF NOT EXISTS display_projection ("
             "projection_key TEXT PRIMARY KEY, payload_json TEXT NOT NULL"
             ")"
@@ -722,6 +726,22 @@ class ChatHistoryStore:
         ).fetchone()
         self._last_timestamp_us = int(row["latest"] if row else 0)
         self._connection.commit()
+
+    def claim_client_message(self, client_id: str, text: str, request_id: str) -> tuple[str, bool]:
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        row = self._connection.execute(
+            "SELECT text_hash, request_id FROM client_message_receipts WHERE client_id=?", (client_id,)
+        ).fetchone()
+        if row is not None:
+            if row["text_hash"] != digest:
+                raise ValueError("Client message id was reused with different text")
+            return str(row["request_id"]), False
+        self._connection.execute(
+            "INSERT INTO client_message_receipts(client_id,text_hash,request_id) VALUES(?,?,?)",
+            (client_id, digest, request_id),
+        )
+        self._commit()
+        return request_id, True
 
     def _commit(self) -> None:
         if self._transaction_depth == 0:
@@ -1227,6 +1247,8 @@ class AvatarWebSocketServer:
         self._clients: set[websockets.WebSocketServerProtocol] = set()
         self._connected = 0
         self._history_generation = 0
+        # Live input-to-reply mappings are presentation metadata, never task state.
+        self._input_turns: dict[str, tuple[str, str]] = {}
         if __package__:
             from .tool_activity import ToolActivityProjection
         else:
@@ -1517,7 +1539,24 @@ class AvatarWebSocketServer:
                     text = str(frame.get("text") or "").strip()
                     if not text:
                         continue
-                    self._queue_user_message(text, origin=ws)
+                    client_id = str(frame.get("client_message_id") or "")
+                    if len(client_id) > 128:
+                        await ws.send(json.dumps({"type": "error", "error": "client_message_id_too_long"}))
+                        continue
+                    if client_id:
+                        prefix = "control" if text.lstrip().startswith("/") else "chat"
+                        proposed = f"{prefix}_{self._history_generation}_{os.urandom(8).hex()}"
+                        try:
+                            request_id, created = self._history.claim_client_message(client_id, text, proposed)
+                        except (ValueError, sqlite3.Error):
+                            await ws.send(json.dumps({"type": "error", "error": "client_message_receipt_failed"}))
+                            continue
+                        if created:
+                            self._queue_user_message(text, origin=ws, request_id=request_id)
+                        await ws.send(json.dumps({"type": "chat_accepted", "client_message_id": client_id,
+                                                  "request_id": request_id}))
+                    else:
+                        self._queue_user_message(text, origin=ws)
                 elif kind == "load_chat_history":
                     cursor = frame.get("before")
                     if not isinstance(cursor, dict):
@@ -1593,10 +1632,10 @@ class AvatarWebSocketServer:
             self._clients.discard(ws)
             self._connected = max(0, self._connected - 1)
 
-    def _queue_user_message(self, text: str, *, origin: Any) -> str:
+    def _queue_user_message(self, text: str, *, origin: Any, request_id: str | None = None) -> str:
         persist_history = not text.lstrip().startswith("/")
         request_kind = "chat" if persist_history else "control"
-        request_id = f"{request_kind}_{self._history_generation}_{os.urandom(8).hex()}"
+        request_id = request_id or f"{request_kind}_{self._history_generation}_{os.urandom(8).hex()}"
         self._ingress_queue.put_nowait(PendingIngress(
             kind="user_message",
             request_id=request_id,
@@ -1797,7 +1836,18 @@ class AvatarWebSocketServer:
         """Project one Pal frame without assuming responses are contiguous."""
         if reply.get("type") == "core_event":
             if isinstance(reply.get("payload"), dict) and isinstance(reply.get("topic"), str):
-                await self.broadcast_frame({"type": "core_event", "topic": reply["topic"], "payload": reply["payload"]})
+                payload = reply["payload"]
+                if reply["topic"] == "turn.start":
+                    source = str((payload.get("reply_target") or {}).get("request_id") or "")
+                    if source:
+                        self._input_turns[source] = (source, str(payload.get("turn_id") or ""))
+                elif reply["topic"] == "turn.input_admitted":
+                    source = str(payload.get("request_id") or "")
+                    if source and payload.get("endpoint_id") == payload.get("reply_endpoint_id"):
+                        self._input_turns[source] = (str(payload.get("reply_request_id") or ""), str(payload.get("turn_id") or ""))
+                if reply["topic"] in {"turn.start", "turn.input_admitted"} and len(self._input_turns) > 8192:
+                    self._input_turns.pop(next(iter(self._input_turns)))
+                await self.broadcast_frame({"type": "core_event", "topic": reply["topic"], "payload": payload})
             return
         if reply.get("type") == "runtime_state":
             payload = reply.get("payload")
@@ -1889,6 +1939,18 @@ class AvatarWebSocketServer:
                 segments,
                 segment_closed_at_us=closed_at,
             )
+            sources = [source for source, (target, _) in self._input_turns.items() if target == request_id]
+            turn_id = next((turn for target, turn in self._input_turns.values() if target == request_id), "")
+            # Bubble done can also delimit tool rounds. Only this terminal branch
+            # emits reply_complete; historical pages never emit it.
+            await self.broadcast_frame({
+                "type": "reply_complete", "request_id": request_id, "turn_id": turn_id,
+                "source_request_ids": sources,
+                "status": "failed" if rtype in {"llm_error", "error"} else "success",
+                "text": next((part for part in reversed(segments) if part.strip()), terminal_text),
+            })
+            for source in sources:
+                self._input_turns.pop(source, None)
             self._reply_parts.pop(request_id, None)
             self._reply_segments.pop(request_id, None)
             self._reply_display_seq.pop(request_id, None)

@@ -808,7 +808,7 @@
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
     showHint("Connecting…");
     try {
-      ws = new WebSocket(WS_URL);
+      ws = window.PAL_NATIVE_TRANSPORT ? window.PAL_NATIVE_TRANSPORT.open() : new WebSocket(WS_URL);
     } catch (e) {
       scheduleReconnect();
       return;
