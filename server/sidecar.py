@@ -1488,44 +1488,47 @@ class AvatarWebSocketServer:
                 )
         await self.broadcast_frame(frame)
 
+    async def _send_current_view(self, ws: Any) -> None:
+        await ws.send(json.dumps({"type": "avatar_state", "state": self._sm.current_state, "supports_view_sync": True}))
+        await ws.send(json.dumps({"type": "runtime_state", "payload": dict(self._sm.runtime_state)}))
+        await self.send_history_page(ws, mode="replace")
+        for activity in self._tool_activity.frames():
+            await ws.send(json.dumps(activity, ensure_ascii=False))
+        for tagged in self._tagged_messages.values():
+            await ws.send(json.dumps(tagged, ensure_ascii=False))
+        for interaction in self._interactions.values():
+            await ws.send(json.dumps(interaction, ensure_ascii=False))
+        for request_id, text in self._history.active_control_replies().items():
+            await ws.send(json.dumps({
+                "type": "chat_message",
+                "sender": "avatar",
+                "event": "start",
+                "message_id": request_id,
+                "text": "",
+            }, ensure_ascii=False))
+            await ws.send(json.dumps({
+                "type": "chat_message",
+                "sender": "avatar",
+                "event": "delta",
+                "message_id": request_id,
+                "text": text,
+            }, ensure_ascii=False))
+            self._started_replies.add(request_id)
+        for pending in self._history.pending_control_deliveries():
+            await ws.send(json.dumps({
+                "type": "chat_message",
+                "sender": "avatar",
+                "event": "notification",
+                "message_id": pending["request_id"],
+                "text": pending["text"],
+                "_avatar_delivery_id": pending["delivery_id"],
+            }, ensure_ascii=False))
+
     async def handle(self, ws: websockets.WebSocketServerProtocol) -> None:
         self._clients.add(ws)
         self._connected += 1
         try:
-            await ws.send(json.dumps({"type": "avatar_state", "state": self._sm.current_state}))
-            await ws.send(json.dumps({"type": "runtime_state", "payload": dict(self._sm.runtime_state)}))
-            await self.send_history_page(ws, mode="replace")
-            for activity in self._tool_activity.frames():
-                await ws.send(json.dumps(activity, ensure_ascii=False))
-            for tagged in self._tagged_messages.values():
-                await ws.send(json.dumps(tagged, ensure_ascii=False))
-            for interaction in self._interactions.values():
-                await ws.send(json.dumps(interaction, ensure_ascii=False))
-            for request_id, text in self._history.active_control_replies().items():
-                await ws.send(json.dumps({
-                    "type": "chat_message",
-                    "sender": "avatar",
-                    "event": "start",
-                    "message_id": request_id,
-                    "text": "",
-                }, ensure_ascii=False))
-                await ws.send(json.dumps({
-                    "type": "chat_message",
-                    "sender": "avatar",
-                    "event": "delta",
-                    "message_id": request_id,
-                    "text": text,
-                }, ensure_ascii=False))
-                self._started_replies.add(request_id)
-            for pending in self._history.pending_control_deliveries():
-                await ws.send(json.dumps({
-                    "type": "chat_message",
-                    "sender": "avatar",
-                    "event": "notification",
-                    "message_id": pending["request_id"],
-                    "text": pending["text"],
-                    "_avatar_delivery_id": pending["delivery_id"],
-                }, ensure_ascii=False))
+            await self._send_current_view(ws)
             async for raw in ws:
                 if not raw:
                     continue
@@ -1557,6 +1560,8 @@ class AvatarWebSocketServer:
                                                   "request_id": request_id}))
                     else:
                         self._queue_user_message(text, origin=ws)
+                elif kind == "sync_view":
+                    await self._send_current_view(ws)
                 elif kind == "load_chat_history":
                     cursor = frame.get("before")
                     if not isinstance(cursor, dict):

@@ -999,3 +999,17 @@ def test_repeated_native_message_is_enqueued_once(tmp_path: Path) -> None:
         assert len(receipts) == 2
         assert receipts[0]["request_id"] == receipts[1]["request_id"]
     asyncio.run(scenario())
+
+
+def test_view_sync_replays_projection_without_new_pal_input(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        history = ChatHistoryStore(tmp_path / "sync.sqlite3")
+        server = AvatarWebSocketServer(state_machine=_StateMachine(), state_queue=AvatarStateQueue(),
+                                      channel=_Channel(), history=history, loop=asyncio.get_running_loop())
+        ws = _IncomingWebSocket([{"type": "sync_view"}])
+        await server.handle(ws)
+        frames = [json.loads(raw) for raw in ws.sent]
+        assert sum(frame.get("type") == "chat_history" for frame in frames) == 2
+        assert server._ingress_queue.empty()
+        assert frames[0]["supports_view_sync"] is True
+    asyncio.run(scenario())
