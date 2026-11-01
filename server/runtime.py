@@ -218,9 +218,25 @@ class DesktopAvatarEndpoint(SocketChannelEndpoint):
     def _on_session_writable(self, session) -> None:
         super()._on_session_writable(session)
         self._flush_runtime_state(session)
+        self._flush_command_catalog(session)
+
+    def apply_control_catalog(self, payload) -> None:
+        super().apply_control_catalog(payload)
+        for session in tuple(self.sessions.values()):
+            session.avatar_commands_pending = True
+            self._flush_command_catalog(session)
+
+    def _flush_command_catalog(self, session) -> None:
+        if session.closed or not session.ready_notified or not getattr(session, "avatar_commands_pending", False):
+            return
+        try:
+            session.outbound.put_nowait({"type": "command_catalog", "commands": list(self._control_commands_manifest)})
+        except asyncio.QueueFull:
+            return
+        session.avatar_commands_pending = False
 
     def is_ephemeral_frame(self, frame: dict[str, Any]) -> bool:
-        return frame.get("type") in {"core_event", "runtime_state", "tool_activity"}
+        return frame.get("type") in {"core_event", "runtime_state", "tool_activity", "command_catalog"}
 
     def on_core_event(self, topic: str, event: dict[str, object]) -> None:
         # No request route or durable delivery: all connected displays may observe.
@@ -237,6 +253,8 @@ class DesktopAvatarEndpoint(SocketChannelEndpoint):
             # until writer progress, rather than failing the session handshake.
             session.avatar_runtime_state_pending = True
             self._flush_runtime_state(session)
+            session.avatar_commands_pending = bool(self._control_commands_manifest)
+            self._flush_command_catalog(session)
 
     def send_status(self, response_handle: Any, kind: str, payload: dict[str, Any]) -> None:
         """Project Pal turn hooks into the avatar's persistent activity state."""

@@ -18,6 +18,13 @@
   const chatMessages = document.getElementById("chat-messages");
   const chatInput = document.getElementById("chat-input");
   const chatSend = document.getElementById("chat-send");
+  const commandSelect = document.getElementById("chat-command");
+  if (commandSelect) commandSelect.addEventListener("change", () => {
+    if (!commandSelect.value) return;
+    chatInput.value = `/${commandSelect.value} `;
+    commandSelect.value = "";
+    chatInput.focus();
+  });
   const chatClose = document.getElementById("chat-close");
   const chatClearScreen = document.getElementById("chat-clear-screen");
   const chatClearHistory = document.getElementById("chat-clear-history");
@@ -841,6 +848,7 @@
 
   function setConnected(connected) {
     chatSend.disabled = !connected;
+    if (commandSelect) commandSelect.disabled = !connected || commandSelect.options.length <= 1;
     chatInput.setAttribute("aria-invalid", connected ? "false" : "true");
   }
 
@@ -854,7 +862,15 @@
 
   function handleFrame(frame) {
     const kind = frame.type;
-    if (kind === "chat_message") {
+    if (kind === "command_catalog") {
+      if (!commandSelect) return;
+      commandSelect.replaceChildren(new Option("命令", ""));
+      for (const item of (Array.isArray(frame.commands) ? frame.commands : []).slice(0, 100)) {
+        if (typeof item?.command !== "string" || !/^[a-z0-9_]{1,32}$/.test(item.command) || typeof item.description !== "string") continue;
+        commandSelect.add(new Option(`/${item.command} · ${item.description}`, item.command));
+      }
+      commandSelect.disabled = chatSend.disabled || commandSelect.options.length <= 1;
+    } else if (kind === "chat_message") {
       if (frame.sender === "avatar") {
         const event = String(frame.event || "delta");
         if (event === "start" || event === "delta") interruptIdleAction();

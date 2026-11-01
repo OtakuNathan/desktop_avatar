@@ -1254,6 +1254,7 @@ class AvatarWebSocketServer:
         else:
             from tool_activity import ToolActivityProjection
         self._tool_activity = ToolActivityProjection()
+        self._control_commands: list[dict[str, str]] = []
         self._tagged_messages: dict[str, dict[str, Any]] = history.load_tagged_messages()
         self._interactions: dict[str, dict[str, Any]] = history.load_interactions()
         self._reply_parts: dict[str, list[str]] = {
@@ -1372,7 +1373,7 @@ class AvatarWebSocketServer:
     @staticmethod
     def _is_transient_reply(reply: dict[str, Any]) -> bool:
         reply_type = str(reply.get("type") or "")
-        if reply_type in {"text_delta", "tool_call", "op_tool_call", "tool_activity", "runtime_state", "core_event"}:
+        if reply_type in {"text_delta", "tool_call", "op_tool_call", "tool_activity", "runtime_state", "core_event", "command_catalog"}:
             return True
         return (
             reply_type in {"llm_done", "done"}
@@ -1491,6 +1492,8 @@ class AvatarWebSocketServer:
     async def _send_current_view(self, ws: Any) -> None:
         await ws.send(json.dumps({"type": "avatar_state", "state": self._sm.current_state, "supports_view_sync": True}))
         await ws.send(json.dumps({"type": "runtime_state", "payload": dict(self._sm.runtime_state)}))
+        if self._control_commands:
+            await ws.send(json.dumps({"type": "command_catalog", "commands": self._control_commands}, ensure_ascii=False))
         await self.send_history_page(ws, mode="replace")
         for activity in self._tool_activity.frames():
             await ws.send(json.dumps(activity, ensure_ascii=False))
@@ -1839,6 +1842,14 @@ class AvatarWebSocketServer:
 
     async def _project_pal_reply(self, reply: dict[str, Any]) -> None:
         """Project one Pal frame without assuming responses are contiguous."""
+        if reply.get("type") == "command_catalog":
+            self._control_commands = [
+                {"command": item["command"], "description": item["description"]}
+                for item in list(reply.get("commands") or [])[:100]
+                if isinstance(item, dict) and isinstance(item.get("command"), str) and isinstance(item.get("description"), str)
+            ]
+            await self.broadcast_frame({"type": "command_catalog", "commands": self._control_commands})
+            return
         if reply.get("type") == "core_event":
             if isinstance(reply.get("payload"), dict) and isinstance(reply.get("topic"), str):
                 payload = reply["payload"]
